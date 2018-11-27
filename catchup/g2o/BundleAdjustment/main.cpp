@@ -204,8 +204,8 @@ int main()
 	for (size_t i = 0; i < cameras.size(); i++)
 	{
 		g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
-		Eigen::Matrix<double, 3, 3> Rcw = cameras[i].pose.rotation();
-		Eigen::Matrix<double, 3, 1> tcw = cameras[i].pose.translation();
+		Eigen::Matrix<double, 3, 3> Rcw = cameras[i].pose.inverse().rotation();
+		Eigen::Matrix<double, 3, 1> tcw = cameras[i].pose.inverse().translation();
 		g2o::SE3Quat Scw(Rcw, tcw);
 		vSE3->setEstimate(Scw);
 		vSE3->setId(i);
@@ -237,6 +237,15 @@ int main()
 		}
 		*/
 
+		/*
+		Eigen::Vector3d prj = cameras[obsPoint2d.cameraId].pose.inverse() * points3d[obsPoint2d.pointId];
+		Eigen::Vector2d normPt(prj.x() / prj.z(), prj.y() / prj.z());
+		Eigen::Vector2d pt2d = normPt * cameras[obsPoint2d.cameraId].focal;
+
+		std::cout << "---" << std::endl;
+		std::cout << pt2d.transpose() << std::endl;
+		std::cout << obsPoint2d.pt.transpose() << std::endl;
+		*/
      	e->fx = cameras[obsPoint2d.cameraId].focal;
 		e->fy = cameras[obsPoint2d.cameraId].focal;
 		e->cx = 0;
@@ -244,7 +253,7 @@ int main()
 		double d1 = cameras[obsPoint2d.cameraId].d1;
 		double d2 = cameras[obsPoint2d.cameraId].d2;
 		double r2 = obsPoint2d.pt.squaredNorm();
-		double undistortion = 1.0;// / (1.0 + r2 * (d1 + d2 * r2));
+		double undistortion = -1.0;// / (1.0 + r2 * (d1 + d2 * r2));
 		e->setMeasurement(obsPoint2d.pt * undistortion);
 		optimizer.addEdge(e);
 	}
@@ -263,7 +272,7 @@ int main()
 		Eigen::Isometry3d pose(Eigen::Isometry3d::Identity());
 		pose.prerotate(CorrectedSiw.rotation());
 		pose.pretranslate(CorrectedSiw.translation());
-		estPoses.push_back(pose);
+		estPoses.push_back(pose.inverse());
 	}
 
 	for (size_t i = 0; i < points3d.size(); i++) {
