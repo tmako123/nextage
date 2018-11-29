@@ -8,17 +8,17 @@
  * http://www.gnu.org/licenses/lgpl-3.0.html
 *******************************************************/
 
-#include <opencv2/opencv.hpp>
-#include <opencv_lib.hpp>
-#include <opencv2/viz.hpp>
+#define _USE_MATH_DEFINES
+#include <math.h>
+#include <random>
 #include <iostream>
 
 #include <Eigen/Dense>
-#define _USE_MATH_DEFINES
-#include <math.h>
-#include <opencv2/core/eigen.hpp>
 
-#include <random>
+#include <opencv2/opencv.hpp>
+#include <opencv_lib.hpp>
+#include <opencv2/viz.hpp>
+#include <opencv2/core/eigen.hpp>
 
 #include "g2o/core/block_solver.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
@@ -41,10 +41,10 @@ struct Camera {
 	double d2;
 };
 
-class TrafalgarLoader {
+class Loader {
 public:
-	TrafalgarLoader() {};
-	~TrafalgarLoader() {};
+	Loader() {};
+	~Loader() {};
 
 	bool LoadFile(const char* filename) {
 		FILE* fptr = fopen(filename, "r");
@@ -75,6 +75,7 @@ public:
 			Eigen::Vector3d translation;
 			Camera cam;
 			cam.pose = Eigen::Isometry3d::Identity();
+			//dataset contains w2c translation
 			FscanfOrDie(fptr, "%lf", &(rotVec.x()));
 			FscanfOrDie(fptr, "%lf", &(rotVec.y()));
 			FscanfOrDie(fptr, "%lf", &(rotVec.z()));
@@ -85,7 +86,7 @@ public:
 			rotVec.normalize();
 			cam.pose.prerotate(Eigen::AngleAxisd(angle, rotVec));
 			cam.pose.pretranslate(translation);
-			cam.pose = cam.pose.inverse();
+			cam.pose = cam.pose;
 			FscanfOrDie(fptr, "%lf", &(cam.focal));
 			FscanfOrDie(fptr, "%lf", &(cam.d1));
 			FscanfOrDie(fptr, "%lf", &(cam.d2));
@@ -149,8 +150,6 @@ void vizPoses(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isom
 	}
 }
 
-
-//データにノイズを乗せる
 void addNoise(std::vector<Eigen::Vector3d>& points3d, double mu = 0.0, double sigma = 0.1) {
 	std::mt19937 rand_src(12345);
 	for (int i = 0; i < points3d.size(); i++) {
@@ -163,12 +162,13 @@ void addNoise(std::vector<Eigen::Vector3d>& points3d, double mu = 0.0, double si
 
 int main()
 {
-	TrafalgarLoader loader;
-	loader.LoadFile("C:/dataset/bundle/problem-21-11315-pre.txt");
+	Loader loader;
+	loader.LoadFile("C:/dataset/bundle/problem-394-100368-pre.txt");
 	std::vector<ObsPoint2d> &obsPoints2d = loader.obsPoints2d;
 	std::vector<Camera> &cameras = loader.cameras;
 	std::vector<Eigen::Vector3d> &points3d = loader.points3d;
 
+	//visualize raw data
 	{
 		cv::viz::Viz3d myWindow("Point Cloud");
 		myWindow.showWidget("Coordinate Widget", cv::viz::WCoordinateSystem());
@@ -181,6 +181,7 @@ int main()
 
 	addNoise(points3d);
 
+	//visualize noized data
 	{
 		cv::viz::Viz3d myWindow("Point Cloud");
 		myWindow.showWidget("Coordinate Widget", cv::viz::WCoordinateSystem());
@@ -204,8 +205,8 @@ int main()
 	for (size_t i = 0; i < cameras.size(); i++)
 	{
 		g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
-		Eigen::Matrix<double, 3, 3> Rcw = cameras[i].pose.inverse().rotation();
-		Eigen::Matrix<double, 3, 1> tcw = cameras[i].pose.inverse().translation();
+		Eigen::Matrix<double, 3, 3> Rcw = cameras[i].pose.rotation();
+		Eigen::Matrix<double, 3, 1> tcw = cameras[i].pose.translation();
 		g2o::SE3Quat Scw(Rcw, tcw);
 		vSE3->setEstimate(Scw);
 		vSE3->setId(i);
@@ -213,6 +214,7 @@ int main()
 		optimizer.addVertex(vSE3);
 	}
 
+	//set points
 	for (size_t i = 0; i < points3d.size(); i++) {
 		g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
 		vPoint->setEstimate(points3d[i]);
@@ -222,6 +224,7 @@ int main()
 		optimizer.addVertex(vPoint);
 	}
 
+	//set edges : obserbation
 	for (size_t i = 0; i < obsPoints2d.size(); i++) {
 		ObsPoint2d& obsPoint2d = obsPoints2d[i];
 		g2o::EdgeSE3ProjectXYZ* e = new g2o::EdgeSE3ProjectXYZ();
@@ -229,32 +232,35 @@ int main()
 		e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(obsPoint2d.cameraId)));
 		e->setInformation(Eigen::Matrix2d::Identity());
 
-		/*
 		{
 			g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
 			e->setRobustKernel(rk);
 			rk->setDelta(thHuber2D);
 		}
-		*/
-
-		/*
-		Eigen::Vector3d prj = cameras[obsPoint2d.cameraId].pose.inverse() * points3d[obsPoint2d.pointId];
-		Eigen::Vector2d normPt(prj.x() / prj.z(), prj.y() / prj.z());
-		Eigen::Vector2d pt2d = normPt * cameras[obsPoint2d.cameraId].focal;
-
-		std::cout << "---" << std::endl;
-		std::cout << pt2d.transpose() << std::endl;
-		std::cout << obsPoint2d.pt.transpose() << std::endl;
-		*/
-     	e->fx = cameras[obsPoint2d.cameraId].focal;
+     	
+		e->fx = cameras[obsPoint2d.cameraId].focal;
 		e->fy = cameras[obsPoint2d.cameraId].focal;
 		e->cx = 0;
 		e->cy = 0;
 		double d1 = cameras[obsPoint2d.cameraId].d1;
 		double d2 = cameras[obsPoint2d.cameraId].d2;
-		double r2 = obsPoint2d.pt.squaredNorm();
-		double undistortion = -1.0;// / (1.0 + r2 * (d1 + d2 * r2));
-		e->setMeasurement(obsPoint2d.pt * undistortion);
+
+		//obserbed points are distorted, so computes the ideal point coordinates here.
+		cv::Mat cameraMatrix = (cv::Mat_<double>(3, 3) << 
+			e->fx, 0., 0.,
+			0., e->fy, 0.,
+			0., 0., 0);
+		cv::Mat distCoeff = (cv::Mat_<double>(1, 4) << d1, d2, 0., 0.);
+		std::vector<cv::Point2d> src;
+		//dataset's camera model is y-up.
+		src.push_back(cv::Point2d(-obsPoint2d.pt.x(), -obsPoint2d.pt.y()));
+		std::vector<cv::Point2d> dst;
+		cv::undistortPoints(src, dst, cameraMatrix, distCoeff);
+		dst[0].x *= e->fx;
+		dst[0].y *= e->fy;
+		e->setMeasurement(Eigen::Vector2d(dst[0].x, dst[0].y));
+		//double undistortion = -1.-
+		//e->setMeasurement(obsPoint2d.pt * undistortion);
 		optimizer.addEdge(e);
 	}
 
@@ -265,6 +271,7 @@ int main()
 	std::vector<Eigen::Vector3d> estPoints3d;
 	std::vector<Eigen::Isometry3d> estPoses;
 
+	// extruct optimized poses
 	for (size_t i = 0; i < cameras.size(); i++)
 	{
 		g2o::VertexSE3Expmap* VSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(i));
@@ -272,14 +279,16 @@ int main()
 		Eigen::Isometry3d pose(Eigen::Isometry3d::Identity());
 		pose.prerotate(CorrectedSiw.rotation());
 		pose.pretranslate(CorrectedSiw.translation());
-		estPoses.push_back(pose.inverse());
+		estPoses.push_back(pose); //w2c
 	}
 
+	// extruct optimized points
 	for (size_t i = 0; i < points3d.size(); i++) {
 		g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(i + cameras.size()));
 		estPoints3d.push_back(vPoint->estimate());
 	}
 
+	// visualize optimized result
 	{
 		cv::viz::Viz3d myWindow("Point Cloud");
 		myWindow.showWidget("Coordinate Widget", cv::viz::WCoordinateSystem());
@@ -289,8 +298,5 @@ int main()
 		myWindow.spin();
 		myWindow.removeAllWidgets();
 	}
-
-
-
 }
 
