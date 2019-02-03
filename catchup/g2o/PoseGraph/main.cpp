@@ -19,11 +19,11 @@
 
 #include "g2o/core/block_solver.h"
 #include "g2o/core/optimization_algorithm_levenberg.h"
-#include "g2o/solvers/linear_solver_eigen.h"
-#include "g2o/types/types_six_dof_expmap.h"
+#include "g2o/solvers/eigen/linear_solver_eigen.h"
+#include "g2o/types/sba/types_six_dof_expmap.h"
 #include "g2o/core/robust_kernel_impl.h"
-#include "g2o/solvers/linear_solver_dense.h"
-#include "g2o/types/types_seven_dof_expmap.h"
+#include "g2o/solvers/dense/linear_solver_dense.h"
+#include "g2o/types/sim3/types_seven_dof_expmap.h"
 
 //make edge
 struct Edge {
@@ -116,8 +116,8 @@ int main()
 	std::vector<Edge> loopEdges;
 	{
 		Edge edge;
-		edge.relativePose = gtPoses[num_pose-1] * gtPoses[0].inverse();
-		edge.id = std::pair<size_t, size_t>(0, num_pose-1);
+		edge.relativePose = gtPoses[num_pose - 1] * gtPoses[0].inverse();
+		edge.id = std::pair<size_t, size_t>(0, num_pose - 1);
 		loopEdges.push_back(edge);
 	}
 
@@ -136,10 +136,10 @@ int main()
 	//g2o
 	g2o::SparseOptimizer optimizer;
 	optimizer.setVerbose(false);
-	g2o::BlockSolver_7_3::LinearSolverType * linearSolver =
-		new g2o::LinearSolverEigen<g2o::BlockSolver_7_3::PoseMatrixType>();
-	g2o::BlockSolver_7_3 * solver_ptr = new g2o::BlockSolver_7_3(linearSolver);
-	g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+	std::unique_ptr<g2o::BlockSolver_7_3::LinearSolverType> linearSolver;
+	linearSolver = g2o::make_unique<g2o::LinearSolverEigen<g2o::BlockSolver_7_3::PoseMatrixType>>();
+	g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(
+		g2o::make_unique<g2o::BlockSolver_7_3>(std::move(linearSolver)));
 
 	solver->setUserLambdaInit(1e-16);
 	optimizer.setAlgorithm(solver);
@@ -181,11 +181,11 @@ int main()
 	for (int i = 0; i < loopEdges.size(); i++) {
 		Edge edge = loopEdges[i];
 		Eigen::Matrix<double, 3, 3> Rji = edge.relativePose.rotation();
-		Eigen::Matrix<double, 3, 1> tji = edge.relativePose.translation();
+		Eigen::Matrix<double, 3, 1> tji = edge.relativePose.translation() * 2;
 		const g2o::Sim3 Sji(Rji, tji, 1.0);
 		g2o::EdgeSim3* e = new g2o::EdgeSim3();
-		e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
-		e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(num_pose - 1)));
+		e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(edge.id.first)));
+		e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(edge.id.second)));
 		e->setMeasurement(Sji);
 		e->information() = matLambda;
 		optimizer.addEdge(e);
@@ -194,6 +194,15 @@ int main()
 	// optimize
 	optimizer.initializeOptimization();
 	optimizer.optimize(20);
+
+	for (auto &edge : optimizer.activeEdges()) {
+		std::cout << "---" << std::endl;
+		for (auto& vertex : edge->vertices()) {
+			std::cout << vertex->id() << " ";
+		}
+		std::cout << std::endl;
+		std::cout << edge->chi2() << std::endl;
+	}
 
 	// expand estPoses
 	std::vector<Eigen::Isometry3d> estPoses; //w2c
