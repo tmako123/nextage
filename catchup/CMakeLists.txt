@@ -30,5 +30,6 @@ endif(OpenCV_INCLUDE_DIRS)
 #####################################################################
 
 ADD_SUBDIRECTORY(g2o)
-#ADD_SUBDIRECTORY(gtsam)
+#ADD_SUBDIRECTORY(fbow)
+ADD_SUBDIRECTORY(gtsam)
 
