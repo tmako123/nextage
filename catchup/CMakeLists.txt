@@ -9,6 +9,8 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 #####################################################################
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
+set(CMAKE_CXX_STANDARD 14)
+
 find_package( OpenMP )
 if (OPENMP_FOUND) 
     set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
@@ -33,4 +35,5 @@ ADD_SUBDIRECTORY(g2o)
 ADD_SUBDIRECTORY(fbow)
 ADD_SUBDIRECTORY(dbow3)
 ADD_SUBDIRECTORY(gtsam)
+ADD_SUBDIRECTORY(simd)
 
