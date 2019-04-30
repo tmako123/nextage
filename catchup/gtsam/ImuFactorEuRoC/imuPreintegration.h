@@ -24,7 +24,7 @@ public:
 	void initialize(double time, Eigen::Isometry3d& initialPose, Eigen::Vector3d& initialVelocity,
 		double imuBiasNoise, double jyroBiasNoise);
 
-	void updateImu(double time, Eigen::Vector3d& gyro, Eigen::Vector3d& acc, bool bDebug = false);
+	Eigen::Isometry3d updateImu(double time, Eigen::Vector3d& gyro, Eigen::Vector3d& acc, bool bDebug = false);
 
 protected:
 	gtsam::ISAM2* m_isam;

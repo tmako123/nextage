@@ -76,7 +76,7 @@ void ImuPreintegration::initialize(double time, Eigen::Isometry3d& initialPose, 
 	m_latestImuTime = time;
 }
 
-void  ImuPreintegration::updateImu(double time, Eigen::Vector3d& gyro, Eigen::Vector3d& acc, bool bDebug) {
+Eigen::Isometry3d ImuPreintegration::updateImu(double time, Eigen::Vector3d& gyro, Eigen::Vector3d& acc, bool bDebug) {
 	m_countX++;
 	m_countV++;
 	m_countB++;
@@ -132,4 +132,13 @@ void  ImuPreintegration::updateImu(double time, Eigen::Vector3d& gyro, Eigen::Ve
 	m_preintImu->resetIntegration();
 	m_graph->resize(0);
 	m_initialEstimate->clear();
+
+	//result.at<gtsam::Pose3>(X(m_countX)).print();
+	Eigen::Matrix3d mat = result.at<gtsam::Pose3>(X(m_countX)).rotation().matrix();
+	Eigen::Vector3d pos = result.at<gtsam::Pose3>(X(m_countX)).translation();
+	Eigen::Isometry3d emat;
+	emat.pretranslate(pos);
+	emat.prerotate(mat);
+	return emat;
+
 }
