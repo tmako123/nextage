@@ -43,6 +43,10 @@ void ImuPreintegration::initialize(double time, Eigen::Isometry3d& initialPose, 
 	m_initialEstimate = new gtsam::Values();
 	m_graph = new gtsam::NonlinearFactorGraph();
 
+	///////////////////
+	initialPose.Identity();
+	///////////////////
+
 	gtsam::Pose3 gtsamInitialPose(initialPose.matrix());
 	m_initialEstimate->insert(X(0), gtsamInitialPose);
 	auto noise = gtsam::noiseModel::Diagonal::Sigmas(
@@ -57,7 +61,12 @@ void ImuPreintegration::initialize(double time, Eigen::Isometry3d& initialPose, 
 	m_graph->push_back(biasprior);
 	
 	auto velnoise = gtsam::noiseModel::Diagonal::Sigmas(gtsam::Vector3(0.1, 0.1, 0.1));
-	gtsam::Vector3 n_velocity(initialVelocity);
+	//gtsam::Vector3 n_velocity(initialVelocity);
+	
+	///////////////////
+	gtsam::Vector3 n_velocity(0, 0, 0);
+	///////////////////
+
 	m_initialEstimate->insert(V(0), n_velocity);
 	gtsam::PriorFactor<gtsam::Vector3> velprior(V(0), n_velocity, velnoise);
 	m_graph->push_back(velprior);
@@ -82,6 +91,11 @@ Eigen::Isometry3d ImuPreintegration::updateImu(double time, Eigen::Vector3d& gyr
 	m_countB++;
 
 	double deltaT = time - m_latestImuTime;
+
+	///////////////////
+	gyro = Eigen::Vector3d(0, 0, 0);
+	acc = Eigen::Vector3d(0, 0, 0);
+	///////////////////
 
 	if (bDebug) {
 		printf("%.3lf, %.3lf, %.3lf\n", time, m_latestImuTime, deltaT);
@@ -139,6 +153,9 @@ Eigen::Isometry3d ImuPreintegration::updateImu(double time, Eigen::Vector3d& gyr
 	Eigen::Isometry3d emat;
 	emat.pretranslate(pos);
 	emat.prerotate(mat);
+
+	std::cout << emat.matrix() << std::endl;
+
 	return emat;
 
 }

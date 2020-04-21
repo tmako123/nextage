@@ -78,8 +78,7 @@ int main(int argc, char* argv[]) {
 		Eigen::Vector3d acc = obs.acc;
 		bool bDebug = false;
 		//if (i == imu.size() - 1) bDebug = true;
-		Eigen::Isometry3d pose = imuSystem.updateImu(time, gyro, acc, bDebug);
-		pose.translation() = pose.translation() * 0.1;
+		Eigen::Isometry3d pose = imuSystem.updateImu(time, gyro, acc, bDebug).inverse();
 		estPoses.push_back(std::pair<double, Eigen::Isometry3d>(time, pose));
 	}
 

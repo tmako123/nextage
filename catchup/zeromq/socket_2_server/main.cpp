@@ -15,11 +15,9 @@ int main() {
 	socket.bind("tcp://*:5555");
 
 	while (true) {
-		std::cout << "input words" << std::endl;
-		char str[256];
-		scanf("%s", &str);
-
-		std::string st(str);
+		std::cout << "push enter" << std::endl;
+		char str = getchar();
+		std::string st(&str);
 		if (st == std::string("q")) break;
  
 		zmq::message_t request(st.data(), st.size());
@@ -27,6 +25,8 @@ int main() {
 
 		zmq::message_t reply;
 		socket.recv(reply);
+		std::string rpl(std::string(static_cast<char*>(reply.data()), reply.size()));
+		std::cout << "Rev : " << rpl << std::endl;
 	}
 
 	return 0;

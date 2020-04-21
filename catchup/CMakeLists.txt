@@ -15,6 +15,7 @@ option(USE_GTSAM "catchup GTSAM" OFF)
 option(USE_SIMD "catchup SIMD" OFF)
 option(USE_PLY "catchup PLY" OFF)
 option(USE_ZEROMQ "catchup ZEROMQ" OFF)
+option(USE_CV "catchup CV" OFF)
 ##
 
 #####################################################################
@@ -70,3 +71,7 @@ endif(USE_PLY)
 if(USE_ZEROMQ)
 ADD_SUBDIRECTORY(zeromq)
 endif(USE_ZEROMQ)
+
+if(USE_CV)
+ADD_SUBDIRECTORY(cv)
+endif(USE_CV)
