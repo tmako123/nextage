@@ -8,6 +8,7 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 
 ##
 #option
+option(USE_STD "catchup STD" OFF)
 option(USE_G2O "catchup G2O" OFF)
 option(USE_FBoW "catchup FBoW" OFF)
 option(USE_DBoW3 "catchup DBoW3" OFF)
@@ -23,7 +24,7 @@ option(USE_CERES "catchup CERES" OFF)
 #####################################################################
 set(CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
-set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD 17)
 
 find_package( OpenMP )
 if (OPENMP_FOUND) 
@@ -44,7 +45,9 @@ if(OpenCV_INCLUDE_DIRS)
 endif(OpenCV_INCLUDE_DIRS)
 
 #####################################################################
+if(USE_STD)
 ADD_SUBDIRECTORY(std)
+endif(USE_STD)
 
 if(USE_G2O)
 ADD_SUBDIRECTORY(g2o)
