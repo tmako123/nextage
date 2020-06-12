@@ -22,3 +22,4 @@ endif(GFLAGS_INCLUDE_DIRS)
 #endif()
 
 ADD_SUBDIRECTORY(LinearFunction)
+ADD_SUBDIRECTORY(QuadraticFunction)
