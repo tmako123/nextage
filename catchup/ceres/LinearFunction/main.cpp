@@ -33,6 +33,38 @@ private:
     const double m_x, m_y;
 };
 
+///<Number of observation parameter, Num of estimation parameter>
+class LinearCostFunctionFactor : public ceres::SizedCostFunction<1, 2> {
+public:
+    LinearCostFunctionFactor(double x, double y)
+        : m_x(x)
+        , m_y(y)
+    {
+    }
+
+    virtual bool Evaluate(
+        double const* const* parameters,
+        double* residuals,
+        double** jacobians) const
+    {
+        double a = parameters[0][0];
+        double b = parameters[0][1];
+
+        residuals[0] = (a * m_x + b) - m_y;
+
+        if (!jacobians) {
+            return true;
+        }
+        jacobians[0][0] = m_x;
+        jacobians[0][1] = 1;
+        return true;
+    }
+
+private:
+    const double m_x,
+        m_y;
+};
+
 int main()
 {
     ///問題のセットアップ
@@ -59,6 +91,8 @@ int main()
 
     ceres::Problem problem;
     std::vector<double> parameter(2, 0.0);
+#if 0
+	///AutoDiff
     for (size_t i = 0; i < vecX.size(); i++) {
         double x = vecX[i];
         double y_ = vecY_[i];
@@ -66,6 +100,18 @@ int main()
             new LinearCostFunctor(x, y_));
         problem.AddResidualBlock(cost_function, nullptr, parameter.data());
     }
+#else
+    ///SizedCostFunction
+    //ceres::LossFunction* loss_function;
+    //loss_function = new ceres::HuberLoss(1.0);
+    for (size_t i = 0; i < vecX.size(); i++) {
+        double x = vecX[i];
+        double y_ = vecY_[i];
+        LinearCostFunctionFactor* f = new LinearCostFunctionFactor(x, y_);
+        //problem.AddResidualBlock(f, loss_function, parameter.data());
+        problem.AddResidualBlock(f, nullptr, parameter.data());
+    }
+#endif
 
     ceres::Solver::Options options;
     options.minimizer_progress_to_stdout = true;
