@@ -75,7 +75,6 @@ private:
 int main()
 {
     ///問題のセットアップ
-    ///y = 0.5 x + 1
     double a = 0.5, b = -1.0, c = -0.5, d = 1.0;
     double mu = 0., sigma = 0.3;
 
@@ -100,7 +99,7 @@ int main()
 
     ceres::Problem problem;
     std::vector<double> parameter(4, 0.0);
-#if 1
+#if 0
     ///AutoDiff
     for (size_t i = 0; i < vecX.size(); i++) {
         double x = vecX[i];
