@@ -16,6 +16,11 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/viz.hpp>
 
+#include <ceres/ceres.h>
+
+#include "factor/pose_local_parameterization.h"
+#include "factor/projection_factor.h"
+
 void vizPoints(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Vector3d> points3d, cv::viz::Color color = cv::viz::Color(255, 255, 255))
 {
     std::vector<cv::Vec3d> cvPoints3d(points3d.size());
@@ -47,11 +52,13 @@ int main()
     std::vector<std::vector<size_t>> fInd = plyIn.getFaceIndices<size_t>();
 
     std::vector<Eigen::Vector3d> points3d;
-    int i = 0;
-    for (auto& pt : vPos) {
-        if (i++ % 30 != 0)
-            continue;
-        points3d.push_back(Eigen::Vector3d(pt.at(0), pt.at(1), pt.at(2)) * 50);
+    {
+        int i = 0;
+        for (auto& pt : vPos) {
+            if (i++ % 30 != 0)
+                continue;
+            points3d.push_back(Eigen::Vector3d(pt.at(0), pt.at(1), pt.at(2)) * 50);
+        }
     }
 
     //generate camera
@@ -98,16 +105,89 @@ int main()
         observationsF.push_back(observationCamF);
     }
 
+    //generate show image
     for (auto& obsCam : observationsF) {
         cv::Mat image = cv::Mat::zeros(h, w, CV_8UC3);
         for (auto& obs : obsCam) {
             cv::circle(image, cv::Point(obs.x(), obs.y()), 2, cv::Scalar(0, 255, 0), -1);
         }
         cv::imshow("", image);
-        cv::waitKey(0);
+        cv::waitKey(33);
     }
 
-    //generate show image
+    //oprimize
+    double para_Pose[7][7];
+    double para_Feature[2000][3];
+    double para_Ex_Pose[1][7];
+
+    for (int i = 0; i < gtPoses.size(); i++) {
+        Eigen::Isometry3d pose = gtPoses[i].inverse();
+        para_Pose[i][0] = pose.translation().x();
+        para_Pose[i][1] = pose.translation().y();
+        para_Pose[i][2] = pose.translation().z();
+        Eigen::Quaterniond q{ pose.rotation() };
+        para_Pose[i][3] = q.x();
+        para_Pose[i][4] = q.y();
+        para_Pose[i][5] = q.z();
+        para_Pose[i][6] = q.w();
+    }
+
+    {
+        int i = 0;
+        Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
+        para_Ex_Pose[i][0] = pose.translation().x();
+        para_Ex_Pose[i][1] = pose.translation().y();
+        para_Ex_Pose[i][2] = pose.translation().z();
+        Eigen::Quaterniond q{ pose.rotation() };
+        para_Ex_Pose[i][3] = q.x();
+        para_Ex_Pose[i][4] = q.y();
+        para_Ex_Pose[i][5] = q.z();
+        para_Ex_Pose[i][6] = q.w();
+    }
+
+    for (int i = 0; i < points3d.size(); i++) {
+        Eigen::Vector3d pt3d = points3d[i];
+        para_Feature[i][0] = pt3d.x();
+        para_Feature[i][1] = pt3d.y();
+        para_Feature[i][2] = pt3d.z();
+    }
+
+    ceres::Problem problem;
+    ceres::LossFunction* loss_function;
+    //loss_function = new ceres::HuberLoss(1.0);
+    loss_function = new ceres::CauchyLoss(1.0);
+    for (int i = 0; i < 7; i++) {
+        ceres::LocalParameterization* local_parameterization = new PoseLocalParameterization();
+        problem.AddParameterBlock(para_Pose[i], 7, local_parameterization);
+        if (i == 0) {
+            problem.SetParameterBlockConstant(para_Pose[i]);
+        }
+    }
+    {
+        ceres::LocalParameterization* local_parameterization = new PoseLocalParameterization();
+        problem.AddParameterBlock(para_Ex_Pose[0], 7, local_parameterization);
+        problem.SetParameterBlockConstant(para_Ex_Pose[0]);
+    }
+
+    for (int i = 0; i < points3d.size(); i++) {
+        for (int j = 0; j < 7; j++) {
+            Eigen::Vector2d obs = observations[j][i];
+            ProjectionFactor* f = new ProjectionFactor(obs);
+            problem.AddResidualBlock(f, loss_function, para_Pose[j], para_Ex_Pose[0], para_Feature[i]);
+        }
+    }
+
+    ceres::Solver::Options options;
+    options.linear_solver_type = ceres::DENSE_SCHUR;
+    //options.num_threads = 2;
+    options.trust_region_strategy_type = ceres::DOGLEG;
+    options.max_num_iterations = 8;
+    //options.use_explicit_schur_complement = true;
+    options.minimizer_progress_to_stdout = true;
+    //options.use_nonmonotonic_steps = true;
+    ceres::Solver::Summary summary;
+    ceres::Solve(options, &problem, &summary);
+    std::cout << summary.BriefReport() << std::endl;
 
     return 0;
 }
