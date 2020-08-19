@@ -78,9 +78,8 @@ int main()
 
     ///show with viz
     cv::viz::Viz3d myWindow("Point Cloud");
-    vizPoints(myWindow, std::string("points3d"), gtPoints3d, cv::viz::Color(0, 0, 255));
-    vizPoses(myWindow, std::string("camera"), gtPoses, cv::viz::Color(0, 0, 255));
-
+    vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
+    vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
     myWindow.spinOnce(1, true);
     myWindow.spin();
     myWindow.removeAllWidgets();
@@ -92,19 +91,29 @@ int main()
     std::default_random_engine engine(seed_gen());
 
     std::vector<Eigen::Vector3d> points3d;
+    std::vector<Eigen::Vector3d> noisedPoints3d;
     for (auto& pt : gtPoints3d) {
         Eigen::Vector3d noisePoint3d = pt + Eigen::Vector3d(dist(engine), dist(engine), dist(engine));
         points3d.push_back(noisePoint3d);
+        noisedPoints3d.push_back(noisePoint3d);
     }
 
     std::vector<Eigen::Isometry3d> poses; //w2c
-    for (auto& pose : gtPoses) {
+    std::vector<Eigen::Isometry3d> noisedPoses; //w2c
+    for (int i = 0; i < gtPoses.size(); i++) {
+        Eigen::Isometry3d pose = gtPoses[i];
+        if (i > 0) {
+            pose.translation() += Eigen::Vector3d(dist(engine), dist(engine), dist(engine));
+        }
         poses.push_back(pose);
+        noisedPoses.push_back(pose);
     }
 
     ///show with viz
-    vizPoints(myWindow, std::string("points3d"), points3d, cv::viz::Color(0, 0, 255));
-    vizPoses(myWindow, std::string("camera"), gtPoses, cv::viz::Color(0, 0, 255));
+    vizPoints(myWindow, std::string("n_points3d"), noisedPoints3d, cv::viz::Color(0, 0, 255));
+    vizPoses(myWindow, std::string("n_camera"), noisedPoses, cv::viz::Color(0, 0, 255));
+    vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
+    vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
     myWindow.spinOnce(1, true);
     myWindow.spin();
     myWindow.removeAllWidgets();
@@ -115,7 +124,7 @@ int main()
     double h = 480;
     std::vector<std::vector<Eigen::Vector2d>> observations;
     std::vector<std::vector<Eigen::Vector2d>> observationsF;
-    for (auto& pose : poses) {
+    for (auto& pose : gtPoses) {
         std::vector<Eigen::Vector2d> observationCam;
         std::vector<Eigen::Vector2d> observationCamF;
         for (auto& pt : gtPoints3d) {
@@ -129,7 +138,8 @@ int main()
         observationsF.push_back(observationCamF);
     }
 
-    //generate show image
+#if 0
+	//generate show image
     for (auto& obsCam : observationsF) {
         cv::Mat image = cv::Mat::zeros(h, w, CV_8UC3);
         for (auto& obs : obsCam) {
@@ -138,6 +148,7 @@ int main()
         cv::imshow("", image);
         cv::waitKey(33);
     }
+#endif
 
     //oprimize
     double para_Pose[7][7];
@@ -205,7 +216,7 @@ int main()
     options.linear_solver_type = ceres::DENSE_SCHUR;
     //options.num_threads = 2;
     options.trust_region_strategy_type = ceres::DOGLEG;
-    options.max_num_iterations = 8;
+    options.max_num_iterations = 16;
     //options.use_explicit_schur_complement = true;
     options.minimizer_progress_to_stdout = true;
     //options.use_nonmonotonic_steps = true;
@@ -223,7 +234,7 @@ int main()
 
         Eigen::Isometry3d pose;
         pose.setIdentity();
-        pose.prerotate(q);
+        pose.prerotate(q.normalized().toRotationMatrix());
         pose.pretranslate(trans);
         poses[i] = pose.inverse();
     }
@@ -234,8 +245,12 @@ int main()
         points3d[i].z() = para_Feature[i][2];
     }
 
-    vizPoints(myWindow, std::string("points3d"), points3d, cv::viz::Color(0, 0, 255));
-    vizPoses(myWindow, std::string("camera"), poses, cv::viz::Color(0, 0, 255));
+    vizPoints(myWindow, std::string("n_points3d"), noisedPoints3d, cv::viz::Color(0, 0, 255));
+    vizPoses(myWindow, std::string("n_camera"), noisedPoses, cv::viz::Color(0, 0, 255));
+    //vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
+    vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
+    vizPoints(myWindow, std::string("points3d"), points3d, cv::viz::Color(255, 255, 0));
+    vizPoses(myWindow, std::string("camera"), poses, cv::viz::Color(255, 255, 0));
     myWindow.spinOnce(1, true);
     myWindow.spin();
     myWindow.removeAllWidgets();
