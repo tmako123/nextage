@@ -85,7 +85,7 @@ int main()
     myWindow.removeAllWidgets();
 
     //generate raugh points and camera
-    double mu = 0., sigma = 0.2;
+    double mu = 0., sigma = 0.3;
     std::normal_distribution<> dist(mu, sigma);
     std::random_device seed_gen;
     std::default_random_engine engine(seed_gen());
@@ -189,8 +189,8 @@ int main()
 
     ceres::Problem problem;
     ceres::LossFunction* loss_function;
-    //loss_function = new ceres::HuberLoss(1.0);
-    loss_function = new ceres::CauchyLoss(1.0);
+    loss_function = new ceres::HuberLoss(1.0);
+    //loss_function = new ceres::CauchyLoss(1.0);
     for (int i = 0; i < 7; i++) {
         ceres::LocalParameterization* local_parameterization = new PoseLocalParameterization();
         problem.AddParameterBlock(para_Pose[i], 7, local_parameterization);
@@ -216,7 +216,7 @@ int main()
     options.linear_solver_type = ceres::DENSE_SCHUR;
     //options.num_threads = 2;
     options.trust_region_strategy_type = ceres::DOGLEG;
-    options.max_num_iterations = 16;
+    options.max_num_iterations = 8;
     //options.use_explicit_schur_complement = true;
     options.minimizer_progress_to_stdout = true;
     //options.use_nonmonotonic_steps = true;
@@ -247,7 +247,7 @@ int main()
 
     vizPoints(myWindow, std::string("n_points3d"), noisedPoints3d, cv::viz::Color(0, 0, 255));
     vizPoses(myWindow, std::string("n_camera"), noisedPoses, cv::viz::Color(0, 0, 255));
-    //vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
+    vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
     vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
     vizPoints(myWindow, std::string("points3d"), points3d, cv::viz::Color(255, 255, 0));
     vizPoses(myWindow, std::string("camera"), poses, cv::viz::Color(255, 255, 0));
