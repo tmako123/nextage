@@ -48,6 +48,20 @@ void vizPoses(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isom
     }
 }
 
+void vizLines(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isometry3d> poses /*w2c*/, cv::viz::Color color = cv::viz::Color(255, 255, 255))
+{
+
+    std::vector<cv::Point3d> points;
+    for (int i = 0; i < poses.size(); i++) {
+        auto pos = poses[i].inverse().translation();
+        cv::Point3d cvPoint3d;
+        eigen2cvPoint(pos, cvPoint3d);
+        points.push_back(cvPoint3d);
+    }
+    cv::viz::WPolyLine w_lines(points, color);
+    window.showWidget(name, w_lines);
+}
+
 void visAxis(cv::viz::Viz3d& window, std::string& name, Eigen::Isometry3d pose = Eigen::Isometry3d::Identity() /*w2c*/, double scale = 0.1)
 {
     Eigen::Vector3d vecX(scale, 0, 0);
@@ -90,6 +104,7 @@ int main()
     ///show with viz
     cv::viz::Viz3d myWindow("Point Cloud");
     vizPoses(myWindow, std::string("g_camera"), poses, cv::viz::Color(0, 255, 0));
+    vizLines(myWindow, std::string("g_camera_line"), poses);
     visAxis(myWindow, std::string("axis"), Eigen::Isometry3d::Identity(), 1.);
     myWindow.spinOnce(1, true);
     myWindow.spin();
