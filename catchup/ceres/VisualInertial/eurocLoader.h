@@ -63,7 +63,7 @@ bool loadIum(const std::string& dirName, std::vector<IMU>& imus)
     return true;
 }
 
-bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometry3f>& refPoseList)
+bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometry3d>& refPoseList)
 {
     std::string gtFilename = dirName + "mav0/state_groundtruth_estimate0/data.csv";
     std::ifstream fi(gtFilename);
@@ -71,6 +71,7 @@ bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometr
         return false;
     }
 
+#if 0
     std::string cam0FileName = dirName + "mav0/cam0/sensor.yaml";
     std::vector<double> yOffsetCam;
     try {
@@ -80,6 +81,9 @@ bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometr
         std::cerr << e.what() << std::endl;
     }
     Eigen::Matrix4d offsetCam = Eigen::Map<Eigen::Matrix4d>(&yOffsetCam[0]).transpose();
+#else
+    Eigen::Matrix4d offsetCam = Eigen::Matrix4d::Identity();
+#endif
 
     refPoseList.clear();
 
@@ -106,9 +110,35 @@ bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometr
         refPose.pretranslate(Eigen::Vector3d(trans.x(), trans.y(), trans.z()));
 
         refPose = refPose * Eigen::Isometry3d(offsetCam);
-        refPoseList.insert(std::make_pair(timeStamp, refPose.inverse().cast<float>()));
+        refPoseList.insert(std::make_pair(timeStamp, refPose.inverse()));
     }
 
+    return true;
+}
+
+bool loadOffset(const std::string& dirName, Eigen::Isometry3d& icl, Eigen::Isometry3d& icr)
+{
+    std::string cam0FileName = dirName + "mav0/cam0/sensor.yaml";
+    std::vector<double> yOffsetCamL;
+    try {
+        YAML::Node yaml = YAML::LoadFile(cam0FileName);
+        yOffsetCamL = yaml["T_BS"]["data"].as<std::vector<double>>();
+    } catch (YAML::Exception& e) {
+        std::cerr << e.what() << std::endl;
+    }
+    Eigen::Matrix4d offsetCamL = Eigen::Map<Eigen::Matrix4d>(&yOffsetCamL[0]).transpose();
+    icl = offsetCamL.inverse();
+
+    std::string cam1FileName = dirName + "mav0/cam1/sensor.yaml";
+    std::vector<double> yOffsetCamR;
+    try {
+        YAML::Node yaml = YAML::LoadFile(cam1FileName);
+        yOffsetCamR = yaml["T_BS"]["data"].as<std::vector<double>>();
+    } catch (YAML::Exception& e) {
+        std::cerr << e.what() << std::endl;
+    }
+    Eigen::Matrix4d offsetCamR = Eigen::Map<Eigen::Matrix4d>(&yOffsetCamR[0]).transpose();
+    icr = offsetCamR.inverse();
     return true;
 }
 }

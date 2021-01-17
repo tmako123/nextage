@@ -62,7 +62,7 @@ void vizLines(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isom
     window.showWidget(name, w_lines);
 }
 
-void visAxis(cv::viz::Viz3d& window, std::string& name, Eigen::Isometry3d pose = Eigen::Isometry3d::Identity() /*w2c*/, double scale = 0.1)
+void vizAxis(cv::viz::Viz3d& window, std::string& name, Eigen::Isometry3d pose = Eigen::Isometry3d::Identity() /*w2c*/, double scale = 0.1)
 {
     Eigen::Vector3d vecX(scale, 0, 0);
     Eigen::Vector3d vecY(0, scale, 0);
@@ -79,33 +79,46 @@ void visAxis(cv::viz::Viz3d& window, std::string& name, Eigen::Isometry3d pose =
     cv::viz::WLine axisX(cvPoint3dOrigin, cvPoint3dX, cv::viz::Color::red());
     cv::viz::WLine axisY(cvPoint3dOrigin, cvPoint3dY, cv::viz::Color::green());
     cv::viz::WLine axisZ(cvPoint3dOrigin, cvPoint3dZ, cv::viz::Color::blue());
-    window.showWidget(widgetLineNameVexX, axisX);
-    window.showWidget(widgetLineNameVexY, axisY);
-    window.showWidget(widgetLineNameVexZ, axisZ);
+    cv::Affine3d cvPose;
+    cv::eigen2cv(Eigen::Affine3d(pose.inverse()).matrix(), cvPose.matrix);
+    window.showWidget(widgetLineNameVexX, axisX, cvPose);
+    window.showWidget(widgetLineNameVexY, axisY, cvPose);
+    window.showWidget(widgetLineNameVexZ, axisZ, cvPose);
+}
+
+void vizAxis(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isometry3d> poses /*w2c*/, double scale = 0.1)
+{
+    for (int i = 0; i < poses.size(); i++) {
+        std::string widgetName = name + std::to_string(i);
+        vizAxis(window, widgetName, poses[i]);
+    }
 }
 
 int main()
 {
     std::vector<IMU> imus;
-    std::map<double, Eigen::Isometry3f> poseLists;
+    std::map<double, Eigen::Isometry3d> poseLists;
+    Eigen::Isometry3d icL, icR;
     EuRoCLoader::loadGroundTruth(DATA_EUROC, poseLists);
     EuRoCLoader::loadIum(DATA_EUROC, imus);
-
-    std::vector<Eigen::Isometry3d> poses; //w2c
+    EuRoCLoader::loadOffset(DATA_EUROC, icL, icR);
+    std::vector<Eigen::Isometry3d> imuPoses, cameraPosesL, cameraPosesR; //w2c
     int count = 0;
     for (auto& pose : poseLists) {
         if (count++ % 300 == 0) {
-            poses.push_back(pose.second.cast<double>());
+            imuPoses.push_back(pose.second);
+            cameraPosesL.push_back(icL * pose.second);
+            cameraPosesR.push_back(icR * pose.second);
         }
     }
 
-    //gtPose generation
-
-    ///show with viz
+    ///show all poses with viz
     cv::viz::Viz3d myWindow("Point Cloud");
-    vizPoses(myWindow, std::string("g_camera"), poses, cv::viz::Color(0, 255, 0));
-    vizLines(myWindow, std::string("g_camera_line"), poses);
-    visAxis(myWindow, std::string("axis"), Eigen::Isometry3d::Identity(), 1.);
+    vizPoses(myWindow, std::string("cameraL"), cameraPosesL, cv::viz::Color(0, 255, 0));
+    vizPoses(myWindow, std::string("cameraR"), cameraPosesR, cv::viz::Color(0, 255, 0));
+    vizAxis(myWindow, std::string("axis"), imuPoses);
+    vizLines(myWindow, std::string("imuTrajectory"), imuPoses);
+    vizAxis(myWindow, std::string("axis"), Eigen::Isometry3d::Identity(), 1.);
     myWindow.spinOnce(1, true);
     myWindow.spin();
     myWindow.removeAllWidgets();
