@@ -17,6 +17,8 @@
 
 #include "happly/happly.h"
 
+const double offsetTime = 1403636579;
+
 struct IMU {
     Eigen::Vector3d acc, gyro;
     double time;
@@ -58,7 +60,7 @@ bool loadIum(const std::string& dirName, std::vector<IMU>& imus)
         IMU imu;
         imu.acc = acc;
         imu.gyro = gyr;
-        imu.time = t * 1e-9;
+        imu.time = t * 1e-9 - offsetTime;
         //std::cout << std::setprecision(15) << imu.t << std::endl;
         imus.push_back(imu);
     }
@@ -92,7 +94,7 @@ bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometr
     std::string str;
     std::getline(fi, str);
     while (std::getline(fi, str)) {
-        double timeStamp;
+        double timeStamp; //ns
         double vecT[3];
         double rot[4];
         sscanf(str.c_str(), "%lf,%lf,%lf,%lf,%lf,%lf,%lf,%lf", &timeStamp, &vecT[0], &vecT[1], &vecT[2], &rot[0], &rot[1], &rot[2], &rot[3]);
@@ -112,7 +114,7 @@ bool loadGroundTruth(const std::string& dirName, std::map<double, Eigen::Isometr
         refPose.pretranslate(Eigen::Vector3d(trans.x(), trans.y(), trans.z()));
 
         refPose = refPose * Eigen::Isometry3d(offsetCam);
-        refPoseList.insert(std::make_pair(timeStamp, refPose.inverse()));
+        refPoseList.insert(std::make_pair(timeStamp * 1e-9 - offsetTime, refPose.inverse()));
     }
 
     return true;
@@ -144,7 +146,8 @@ bool loadOffset(const std::string& dirName, Eigen::Isometry3d& icl, Eigen::Isome
     return true;
 }
 
-bool loadPoints(const std::string& dirName, std::vector<Eigen::Vector3d>& points) {
+bool loadPoints(const std::string& dirName, std::vector<Eigen::Vector3d>& points)
+{
     std::string pointFileName = dirName + "mav0/points.ply";
     happly::PLYData plyIn(pointFileName);
     std::vector<std::array<double, 3>> vPos = plyIn.getVertexPositions();
@@ -153,7 +156,7 @@ bool loadPoints(const std::string& dirName, std::vector<Eigen::Vector3d>& points
     points.reserve(vPos.size());
     for (auto& pos : vPos) {
         points.push_back(Eigen::Vector3d(pos[0], pos[1], pos[2]));
-	}
+    }
     return true;
 }
 }
