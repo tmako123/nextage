@@ -96,12 +96,15 @@ void vizAxis(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isome
 
 int main()
 {
+    //load poses
     std::vector<IMU> imus;
     std::map<double, Eigen::Isometry3d> poseLists;
     Eigen::Isometry3d icL, icR;
+    std::vector<Eigen::Vector3d> points3d;
     EuRoCLoader::loadGroundTruth(DATA_EUROC, poseLists);
     EuRoCLoader::loadIum(DATA_EUROC, imus);
     EuRoCLoader::loadOffset(DATA_EUROC, icL, icR);
+    EuRoCLoader::loadPoints(DATA_EUROC, points3d);
     std::vector<Eigen::Isometry3d> imuPoses, cameraPosesL, cameraPosesR; //w2c
     int count = 0;
     for (auto& pose : poseLists) {
@@ -119,6 +122,7 @@ int main()
     vizAxis(myWindow, std::string("axis"), imuPoses);
     vizLines(myWindow, std::string("imuTrajectory"), imuPoses);
     vizAxis(myWindow, std::string("axis"), Eigen::Isometry3d::Identity(), 1.);
+    vizPoints(myWindow, std::string("point3d"), points3d, cv::viz::Color(255, 255, 255));
     myWindow.spinOnce(1, true);
     myWindow.spin();
     myWindow.removeAllWidgets();

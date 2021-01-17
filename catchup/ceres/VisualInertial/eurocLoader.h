@@ -15,6 +15,8 @@
 #include <string>
 #include <yaml-cpp/yaml.h>
 
+#include "happly/happly.h"
+
 struct IMU {
     Eigen::Vector3d acc, gyro;
     double time;
@@ -139,6 +141,19 @@ bool loadOffset(const std::string& dirName, Eigen::Isometry3d& icl, Eigen::Isome
     }
     Eigen::Matrix4d offsetCamR = Eigen::Map<Eigen::Matrix4d>(&yOffsetCamR[0]).transpose();
     icr = offsetCamR.inverse();
+    return true;
+}
+
+bool loadPoints(const std::string& dirName, std::vector<Eigen::Vector3d>& points) {
+    std::string pointFileName = dirName + "mav0/points.ply";
+    happly::PLYData plyIn(pointFileName);
+    std::vector<std::array<double, 3>> vPos = plyIn.getVertexPositions();
+    std::vector<std::vector<size_t>> fInd = plyIn.getFaceIndices<size_t>();
+    double minX = 0;
+    points.reserve(vPos.size());
+    for (auto& pos : vPos) {
+        points.push_back(Eigen::Vector3d(pos[0], pos[1], pos[2]));
+	}
     return true;
 }
 }
