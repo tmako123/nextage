@@ -17,8 +17,7 @@
 #include <opencv2/viz.hpp>
 #include <random>
 
-#include "factor/pose_local_parameterization.h"
-#include "factor/projection_factor.h"
+#include "factor.h"
 #include "happly/happly.h"
 
 void vizPoints(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Vector3d> points3d, cv::viz::Color color = cv::viz::Color(255, 255, 255))
@@ -32,11 +31,11 @@ void vizPoints(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Vec
     window.showWidget(name, wcloud);
 }
 
-void vizPoses(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isometry3d> poses /*w2c*/, cv::viz::Color color = cv::viz::Color(255, 255, 255))
+void vizPoses(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isometry3d> poses /*c2w*/, cv::viz::Color color = cv::viz::Color(255, 255, 255))
 {
     for (int i = 0; i < poses.size(); i++) {
         cv::Affine3d camPose;
-        cv::eigen2cv(Eigen::Affine3d(poses[i].inverse()).matrix(), camPose.matrix);
+        cv::eigen2cv(Eigen::Affine3d(poses[i]).matrix(), camPose.matrix);
         std::string widgetFrustumName = name + std::to_string(i);
         cv::viz::WCameraPosition cpw_frustum(cv::Vec2f(0.889484, 0.523599), -1.0, color); // Camera frustum
         window.showWidget(widgetFrustumName, cpw_frustum, camPose);
@@ -64,7 +63,7 @@ int main()
     //generate camera
     int num_pose = 40;
     int radius = 10;
-    std::vector<Eigen::Isometry3d> gtPoses; //w2c
+    std::vector<Eigen::Isometry3d> gtPoses; //c2w
     //gtPose generation
     for (int i = -3; i <= 3; i++) {
         double rad = 2 * M_PI / num_pose * i;
@@ -73,7 +72,7 @@ int main()
         Eigen::Isometry3d pose(Eigen::Isometry3d::Identity());
         pose.prerotate(rot);
         pose.pretranslate(trans * radius);
-        gtPoses.push_back(pose.inverse());
+        gtPoses.push_back(pose);
     }
 
     ///show with viz
@@ -98,8 +97,8 @@ int main()
         noisedPoints3d.push_back(noisePoint3d);
     }
 
-    std::vector<Eigen::Isometry3d> poses; //w2c
-    std::vector<Eigen::Isometry3d> noisedPoses; //w2c
+    std::vector<Eigen::Isometry3d> poses; //c2w
+    std::vector<Eigen::Isometry3d> noisedPoses; //c2w
     for (int i = 0; i < gtPoses.size(); i++) {
         Eigen::Isometry3d pose = gtPoses[i];
         if (i > 0) {
@@ -128,9 +127,9 @@ int main()
         std::vector<Eigen::Vector2d> observationCam;
         std::vector<Eigen::Vector2d> observationCamF;
         for (auto& pt : gtPoints3d) {
-            Eigen::Vector3d pt3d_cam = pose * pt;
+            Eigen::Vector3d pt3d_cam = pose.inverse() * pt;
             Eigen::Vector2d pt2d_norm = pt3d_cam.head<2>() / pt3d_cam.z();
-            Eigen::Vector2d pt2d = pt2d_norm * f + Eigen::Vector2d(w / 2, h / 2);
+            Eigen::Vector2d pt2d = pt2d_norm * f + Eigen::Vector2d(w , h) * 0.5;
             observationCam.push_back(pt2d_norm);
             observationCamF.push_back(pt2d);
         }
@@ -151,40 +150,26 @@ int main()
 #endif
 
     //oprimize
-    double para_Pose[7][7];
-    double para_Feature[2000][3];
-    double para_Ex_Pose[1][7];
+    double POSE[7][7];
+    double POINT[2000][3];
 
     for (int i = 0; i < poses.size(); i++) {
-        Eigen::Isometry3d pose = poses[i].inverse();
-        para_Pose[i][0] = pose.translation().x();
-        para_Pose[i][1] = pose.translation().y();
-        para_Pose[i][2] = pose.translation().z();
+        Eigen::Isometry3d pose = poses[i];
+        POSE[i][0] = pose.translation().x();
+        POSE[i][1] = pose.translation().y();
+        POSE[i][2] = pose.translation().z();
         Eigen::Quaterniond q{ pose.rotation() };
-        para_Pose[i][3] = q.x();
-        para_Pose[i][4] = q.y();
-        para_Pose[i][5] = q.z();
-        para_Pose[i][6] = q.w();
-    }
-
-    {
-        int i = 0;
-        Eigen::Isometry3d pose = Eigen::Isometry3d::Identity();
-        para_Ex_Pose[i][0] = pose.translation().x();
-        para_Ex_Pose[i][1] = pose.translation().y();
-        para_Ex_Pose[i][2] = pose.translation().z();
-        Eigen::Quaterniond q{ pose.rotation() };
-        para_Ex_Pose[i][3] = q.x();
-        para_Ex_Pose[i][4] = q.y();
-        para_Ex_Pose[i][5] = q.z();
-        para_Ex_Pose[i][6] = q.w();
+        POSE[i][3] = q.x();
+        POSE[i][4] = q.y();
+        POSE[i][5] = q.z();
+        POSE[i][6] = q.w();
     }
 
     for (int i = 0; i < points3d.size(); i++) {
         Eigen::Vector3d pt3d = points3d[i];
-        para_Feature[i][0] = pt3d.x();
-        para_Feature[i][1] = pt3d.y();
-        para_Feature[i][2] = pt3d.z();
+        POINT[i][0] = pt3d.x();
+        POINT[i][1] = pt3d.y();
+        POINT[i][2] = pt3d.z();
     }
 
     ceres::Problem problem;
@@ -193,56 +178,51 @@ int main()
     //loss_function = new ceres::CauchyLoss(1.0);
     for (int i = 0; i < 7; i++) {
         ceres::LocalParameterization* local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Pose[i], 7, local_parameterization);
+        problem.AddParameterBlock(POSE[i], 7, local_parameterization);
         if (i == 0) {
-            problem.SetParameterBlockConstant(para_Pose[i]);
+            problem.SetParameterBlockConstant(POSE[i]);
         }
-    }
-    {
-        ceres::LocalParameterization* local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Ex_Pose[0], 7, local_parameterization);
-        problem.SetParameterBlockConstant(para_Ex_Pose[0]);
     }
 
     for (int i = 0; i < points3d.size(); i++) {
         for (int j = 0; j < 7; j++) {
             Eigen::Vector2d obs = observations[j][i];
             ProjectionFactor* f = new ProjectionFactor(obs);
-            problem.AddResidualBlock(f, loss_function, para_Pose[j], para_Ex_Pose[0], para_Feature[i]);
+            problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
         }
     }
 
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::DENSE_SCHUR;
-    //options.num_threads = 2;
     options.trust_region_strategy_type = ceres::DOGLEG;
     options.max_num_iterations = 8;
-    //options.use_explicit_schur_complement = true;
     options.minimizer_progress_to_stdout = true;
+    //options.num_threads = 2;
+    //options.use_explicit_schur_complement = true;
     //options.use_nonmonotonic_steps = true;
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     std::cout << summary.BriefReport() << std::endl;
 
     for (int i = 0; i < poses.size(); i++) {
-        Eigen::Vector3d trans(para_Pose[i][0], para_Pose[i][1], para_Pose[i][2]);
+        Eigen::Vector3d trans(POSE[i][0], POSE[i][1], POSE[i][2]);
         Eigen::Quaterniond q;
-        q.x() = para_Pose[i][3];
-        q.y() = para_Pose[i][4];
-        q.z() = para_Pose[i][5];
-        q.w() = para_Pose[i][6];
+        q.x() = POSE[i][3];
+        q.y() = POSE[i][4];
+        q.z() = POSE[i][5];
+        q.w() = POSE[i][6];
 
         Eigen::Isometry3d pose;
         pose.setIdentity();
         pose.prerotate(q.normalized().toRotationMatrix());
         pose.pretranslate(trans);
-        poses[i] = pose.inverse();
+        poses[i] = pose;
     }
 
     for (int i = 0; i < points3d.size(); i++) {
-        points3d[i].x() = para_Feature[i][0];
-        points3d[i].y() = para_Feature[i][1];
-        points3d[i].z() = para_Feature[i][2];
+        points3d[i].x() = POINT[i][0];
+        points3d[i].y() = POINT[i][1];
+        points3d[i].z() = POINT[i][2];
     }
 
     vizPoints(myWindow, std::string("n_points3d"), noisedPoints3d, cv::viz::Color(0, 0, 255));
