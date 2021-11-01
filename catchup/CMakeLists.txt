@@ -19,6 +19,7 @@ option(USE_ZEROMQ "catchup ZEROMQ" OFF)
 option(USE_CV "catchup CV" OFF)
 option(USE_NANO "catchup NANO" OFF)
 option(USE_CERES "catchup CERES" OFF)
+option(USE_SVO "catchup SVO" OFF)
 ##
 
 #####################################################################
@@ -88,3 +89,7 @@ endif(USE_NANO)
 if(USE_CERES)
 ADD_SUBDIRECTORY(ceres)
 endif(USE_CERES)
+
+if(USE_SVO)
+ADD_SUBDIRECTORY(svo)
+endif(USE_SVO)
