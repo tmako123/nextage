@@ -1,8 +1,5 @@
 /*******************************************************
  * Copyright(c) 2021, tmako123
-            }
-            // If not using affine compensation, force update to be zero.
-            if (!affine_est_offset) {
  * All rights reserved.
  *
  * This file is distributed under the GNU Lesser General Public License v3.0.
