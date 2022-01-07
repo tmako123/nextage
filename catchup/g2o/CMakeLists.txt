@@ -7,3 +7,4 @@ endif(G2O_INCLUDE_DIR)
 
 ADD_SUBDIRECTORY(PoseGraph)
 ADD_SUBDIRECTORY(BundleAdjustment)
+ADD_SUBDIRECTORY(LinearFunction)
