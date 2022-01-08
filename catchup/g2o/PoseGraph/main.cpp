@@ -181,7 +181,7 @@ int main()
 	for (int i = 0; i < loopEdges.size(); i++) {
 		Edge edge = loopEdges[i];
 		Eigen::Matrix<double, 3, 3> Rji = edge.relativePose.rotation();
-		Eigen::Matrix<double, 3, 1> tji = edge.relativePose.translation() * 2;
+		Eigen::Matrix<double, 3, 1> tji = edge.relativePose.translation();
 		const g2o::Sim3 Sji(Rji, tji, 1.0);
 		g2o::EdgeSim3* e = new g2o::EdgeSim3();
 		e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(edge.id.first)));
