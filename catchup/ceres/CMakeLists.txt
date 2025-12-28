@@ -27,7 +27,7 @@ find_package(OpenCV REQUIRED)
 include_directories(${OpenCV_INCLUDE_DIRS})
 
 ADD_SUBDIRECTORY(LinearFunction)
-#ADD_SUBDIRECTORY(QuadraticFunction)
+ADD_SUBDIRECTORY(QuadraticFunction)
 #ADD_SUBDIRECTORY(CubicFunction)
 #ADD_SUBDIRECTORY(PowellFunction)
 #ADD_SUBDIRECTORY(2d-2dCorrespondence)

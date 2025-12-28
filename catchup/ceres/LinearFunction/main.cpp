@@ -57,7 +57,9 @@ public:
         {
             return true;
         }
+        // de/da
         jacobians[0][0] = m_x;
+        // de/db
         jacobians[0][1] = 1;
         return true;
     }
