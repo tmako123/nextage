@@ -122,12 +122,11 @@ int main()
     /// SizedCostFunction
     // ceres::LossFunction* loss_function;
     // loss_function = new ceres::HuberLoss(1.0);
-    for (size_t i = 0; i < vecX.size(); i++)
+    for (size_t i = 0; i < v_X.size(); i++)
     {
-        double x = vecX[i];
-        double y_ = vecY_[i];
-        CubicCostFunctionFactor *f = new CubicCostFunctionFactor(x, y_);
-        // problem.AddResidualBlock(f, loss_function, parameter.data());
+        double x = v_X[i];
+        double obsY = v_obsY[i];
+        CubicCostFunctionFactor *f = new CubicCostFunctionFactor(x, obsY);
         problem.AddResidualBlock(f, nullptr, parameter.data());
     }
 #endif

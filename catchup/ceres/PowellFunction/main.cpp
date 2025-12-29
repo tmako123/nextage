@@ -13,6 +13,7 @@
 #include <random>
 #include <vector>
 
+// ceresのAutoDiffCostFunction用のFactor
 struct PowellCostFunctor {
     template <typename T>
     bool operator()(
@@ -27,7 +28,8 @@ struct PowellCostFunctor {
     }
 };
 
-///<Number of observation parameter, Num of estimation parameter>
+// ceresのSizedCostFunction用のFactor
+///< 残渣の次元数:4, 推定パラメーターの次元数:4>
 class PowellCostFunctorFactor : public ceres::SizedCostFunction<4, 4> {
 public:
     virtual bool Evaluate(
@@ -50,6 +52,7 @@ public:
         }
         ///eigen default major is col! set row major.
         Eigen::Map<Eigen::Matrix<double, 4, 4, Eigen::RowMajor>> j(jacobians[0]);
+        //de/da,db,dc,dd
         j << 1.0, 10.0, 0.0, 0.0,
             0.0, 0.0, sqrt(5.0), -1.0,
             0.0, 2 * x2 - 4 * x3, -4 * x2 + 8 * x3, 0.0,
@@ -60,12 +63,11 @@ public:
 
 int main()
 {
-    ///���̃Z�b�g�A�b�v
     Eigen::Vector4d x(3.0, 1.0, 2.0, 1.0);
     std::cout << "initial " << x.transpose() << std::endl;
 
     ceres::Problem problem;
-#if 0
+#if 1
     ///AutoDiff
     ceres::CostFunction* cost_function = new ceres::AutoDiffCostFunction<PowellCostFunctor, 4, 4>(
         new PowellCostFunctor);
@@ -75,17 +77,17 @@ int main()
     //ceres::LossFunction* loss_function;
     //loss_function = new ceres::HuberLoss(1.0);
     PowellCostFunctorFactor* f = new PowellCostFunctorFactor();
-    //problem.AddResidualBlock(f, loss_function, parameter.data());
     problem.AddResidualBlock(f, nullptr, x.data());
 #endif
 
+    // 最適化オプション
     ceres::Solver::Options options;
     options.minimizer_progress_to_stdout = true;
     ceres::Solver::Summary summary;
+
+    // 最適化実行
     ceres::Solve(options, &problem, &summary);
-
     std::cout << summary.BriefReport() << std::endl;
-
     std::cout << "optimized " << x.transpose() << std::endl;
 
     return 0;
