@@ -28,7 +28,7 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 
 ADD_SUBDIRECTORY(LinearFunction)
 ADD_SUBDIRECTORY(QuadraticFunction)
-#ADD_SUBDIRECTORY(CubicFunction)
+ADD_SUBDIRECTORY(CubicFunction)
 #ADD_SUBDIRECTORY(PowellFunction)
 #ADD_SUBDIRECTORY(2d-2dCorrespondence)
 #ADD_SUBDIRECTORY(3d-3dCorrespondence)
