@@ -17,75 +17,91 @@ ProjectionFactor::ProjectionFactor(const Eigen::Vector2d &_pt_j)
 
 bool ProjectionFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
-    Eigen::Vector3d P(parameters[0][0], parameters[0][1], parameters[0][2]);
-    Eigen::Quaterniond Q(parameters[0][3], parameters[0][4], parameters[0][5], parameters[0][6]);
+    // 1. パラメータ
+    Eigen::Map<const Eigen::Vector3d> P(parameters[0]);
+    // Ceres/Eigenの四元数は w, x, y, z
+    double w = parameters[0][3];
+    double x = parameters[0][4];
+    double y = parameters[0][5];
+    double z = parameters[0][6];
+    Eigen::Quaterniond Q(w, x, y, z);
+    Eigen::Map<const Eigen::Vector3d> X(parameters[1]);
 
-    Eigen::Vector3d X(parameters[1][0], parameters[1][1], parameters[1][2]);
+    // 2. 座標変換
+    // p = R(q)^T * (X - P)
+    // R(q)^T は q の共役 q* = (w, -x, -y, -z) による回転と同じです。
+    // つまり、p = q* \times (X-P) \times q
+    Eigen::Matrix3d R_cw = Q.toRotationMatrix().transpose();
+    Eigen::Vector3d X_rel = X - P;
+    Eigen::Vector3d pt_cam = R_cw * X_rel;
 
-    Eigen::Vector3d pt_cam = Q.inverse() * (X - P);
-    Eigen::Map<Eigen::Vector2d> residual(residuals);
-
+    // 3. 残差
+    double weight = 400.0;
     double inv_z = 1.0 / pt_cam.z();
-    double inv_z2 = inv_z * inv_z;
-    residual = (pt_cam * inv_z).head<2>() - pt_j;
-    residual = infoMatrix * residual;
+    Eigen::Map<Eigen::Vector2d> residual(residuals);
+    residual = (pt_cam.head<2>() * inv_z - pt_j) * weight;
 
     if (jacobians)
     {
-        Eigen::Matrix3d R = Q.toRotationMatrix();
-        Eigen::Matrix<double, 2, 3> jacob_proj(2, 3);
-        jacob_proj << 1. * inv_z, 0, -pt_cam(0) * inv_z2,
-            0, 1. * inv_z, -pt_cam(1) * inv_z2;
-        jacob_proj = infoMatrix * jacob_proj;
+        // 4. 投影行列 (2x3)
+        Eigen::Matrix<double, 2, 3> J_proj;
+        double inv_z2 = inv_z * inv_z;
+        J_proj << inv_z, 0, -pt_cam.x() * inv_z2,
+                  0, inv_z, -pt_cam.y() * inv_z2;
+        J_proj *= weight;
 
+        // --- カメラパラメータ (jacobians[0]) ---
         if (jacobians[0])
         {
-            Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jacobian_cam(jacobians[0]);
-            jacobian_cam.setZero(); // 7列すべて初期化
+            Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> J_cam(jacobians[0]);
+            J_cam.setZero();
 
-            // 1. 投影の微分 (2x3)
-            Eigen::Matrix<double, 2, 3> jacob_proj;
-            jacob_proj << inv_z, 0, -pt_cam.x() * inv_z2,
-                0, inv_z, -pt_cam.y() * inv_z2;
-            jacob_proj = infoMatrix * jacob_proj;
+            // A. 並進微分 (∂p / ∂P = -R_cw)
+            J_cam.leftCols<3>() = J_proj * (-R_cw);
 
-            // 2. 並進の微分 (2x3)
-            jacobian_cam.leftCols<3>() = jacob_proj * (-R.transpose());
+            // B. 回転微分 (∂p / ∂q) : Ambient Jacobian (3x4)を直接計算
+            // 式: p = R(q)^T * u  (u = X_rel)
+            // この偏微分は非常に間違いやすいため、以下の成分計算を用います。
+            // R^T * u = (2w^2 - 1)u + 2(v*u)v - 2w(v x u)  (v=[x,y,z])
+            // 注: 通常の回転 R*u の式に対し、クロス積の項の符号が反転します。
 
-            // 3. 回転の微分 (2x4)
-            // 接空間の微分 (2x3) = jacob_proj * skewSymmetric(pt_cam)
-            // これを Ceres の QuaternionManifold が解釈できる 2x4 形式に変換します。
-            // [接空間微分(2x3)] * [Local-to-Global 変換行列(3x4)] という形になります。
+            double ux = X_rel.x(), uy = X_rel.y(), uz = X_rel.z();
+            
+            // 各成分の偏微分係数
+            // Col 0: w
+            // ∂/∂w = 4w*u - 2(v x u) = 2 * (2w*u - v x u) -> いや、係数が合わないことが多いので行列展開します
+            
+            Eigen::Matrix<double, 3, 4> J_rot_amb;
 
-            // 回転の接空間微分 (2x3)
-            Eigen::Matrix<double, 2, 3> jacob_rot_local = jacob_proj * skewSymmetric(pt_cam);
+            // 以下の係数は R^T * u の厳密な展開結果です
+            // w
+            J_rot_amb(0, 0) = 2.0 * ( w * ux + z * uy - y * uz);
+            J_rot_amb(1, 0) = 2.0 * (-z * ux + w * uy + x * uz);
+            J_rot_amb(2, 0) = 2.0 * ( y * ux - x * uy + w * uz);
 
-            // CeresのQuaternionManifold(w,x,y,z)において、
-            // Local増分からGlobal(Quaternion)への微分は以下の形になります。
-            Eigen::Matrix<double, 3, 4> j_local_to_global;
-            j_local_to_global << -Q.x(), Q.w(), Q.z(), -Q.y(),
-                -Q.y(), -Q.z(), Q.w(), Q.x(),
-                -Q.z(), Q.y(), -Q.x(), Q.w();
-            j_local_to_global *= 0.5;
+            // x
+            J_rot_amb(0, 1) = 2.0 * ( x * ux + y * uy + z * uz);
+            J_rot_amb(1, 1) = 2.0 * ( y * ux - x * uy - w * uz);
+            J_rot_amb(2, 1) = 2.0 * ( z * ux + w * uy - x * uz);
 
-            // 4列（index 3, 4, 5, 6）にセット
-            // ここでは単純化のため、Ceresの内部射影と打ち消し合う形での「Global微分」をセットします
-            // ※ 実際には Ceres がこの jacobian_cam (2x4) に Manifold の 4x3 を掛けて 2x3 に戻します。
-            // そのため、ここでは 2x3 の local 微分を 2x4 に「展開」して渡します。
+            // y
+            J_rot_amb(0, 2) = 2.0 * (-y * ux + x * uy + w * uz);
+            J_rot_amb(1, 2) = 2.0 * ( x * ux + y * uy + z * uz);
+            J_rot_amb(2, 2) = 2.0 * (-w * ux + z * uy - y * uz);
 
-            // 最も確実な「手書きLocal微分」の渡し方：
-            // CeresのQuaternionManifoldを使っている場合、
-            // ここで 2x4 の行列として「接空間での動きをQuaternionの4成分に投影した値」を書き込みます。
-            jacobian_cam.block<2, 4>(0, 3) = jacob_rot_local * j_local_to_global;
+            // z
+            J_rot_amb(0, 3) = 2.0 * (-z * ux - w * uy + y * uz);
+            J_rot_amb(1, 3) = 2.0 * ( w * ux - z * uy + x * uz);
+            J_rot_amb(2, 3) = 2.0 * ( x * ux + y * uy + z * uz);
+
+            J_cam.rightCols<4>() = J_proj * J_rot_amb;
         }
+
         if (jacobians[1])
         {
-            Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> jacobian_point(jacobians[1]);
-            Eigen::Matrix3d j_point;
-            j_point = R.transpose();
-            jacobian_point = jacob_proj * j_point;
+            Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> J_pt(jacobians[1]);
+            J_pt = J_proj * R_cw;
         }
     }
-
     return true;
 }

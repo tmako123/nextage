@@ -206,11 +206,17 @@ int main()
         {
             Eigen::Vector2d obs = observations[j][i];
 
+            // ProjectionFactor* f = new ProjectionFactor(obs);
+            // problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
+
+            // ceres::CostFunction *f = new ceres::NumericDiffCostFunction<ProjectionFactor, ceres::CENTRAL, 2, 7, 3>(
+            //     new ProjectionFactor(obs), ceres::TAKE_OWNERSHIP);
+            // problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
+
             // AutoDiffFunction
             ceres::CostFunction *cost_function =
                 new ceres::AutoDiffCostFunction<autoDiffProjectionFactor, 2, 7, 3>(
                     new autoDiffProjectionFactor(obs));
-
             problem.AddResidualBlock(cost_function, loss_function, POSE[j], POINT[i]);
         }
     }
@@ -225,7 +231,7 @@ int main()
     // options.use_nonmonotonic_steps = true;
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
-    std::cout << summary.BriefReport() << std::endl;
+    std::cout << summary.FullReport() << std::endl;
 
     for (int i = 0; i < poses.size(); i++)
     {
