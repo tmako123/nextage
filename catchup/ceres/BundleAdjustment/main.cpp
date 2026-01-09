@@ -5,7 +5,7 @@
  * This file is distributed under the GNU Lesser General Public License v3.0.
  * The complete license agreement can be obtained at :
  * http://www.gnu.org/licenses/lgpl-3.0.html
-*******************************************************/
+ *******************************************************/
 
 #define _USE_MATH_DEFINES
 #include <Eigen/Dense>
@@ -14,60 +14,60 @@
 #include <math.h>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/opencv.hpp>
-#include <opencv2/viz.hpp>
 #include <random>
 
 #include "factor.h"
 #include "happly/happly.h"
 
-void vizPoints(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Vector3d> points3d, cv::viz::Color color = cv::viz::Color(255, 255, 255))
+#include <opencv2/highgui.hpp>
+#include <opencv2/core/eigen.hpp>
+
+// 自作のヘッダーをインクルード
+#include "Simple3DViewer.hpp"
+
+// Eigen::Vector3d のリストを Point3f のリストに変換する補助関数
+std::vector<cv::Point3f> eigenToCvPoints(const std::vector<Eigen::Vector3d> &pts)
 {
-    std::vector<cv::Vec3d> cvPoints3d(points3d.size());
-    for (int i = 0; i < points3d.size(); i++) {
-        cv::Vec3d pt3d(points3d[i].x(), points3d[i].y(), points3d[i].z());
-        cvPoints3d[i] = pt3d;
+    std::vector<cv::Point3f> cvPts;
+    cvPts.reserve(pts.size());
+    for (const auto &p : pts)
+    {
+        cvPts.emplace_back((float)p.x(), (float)p.y(), (float)p.z());
     }
-    cv::viz::WCloud wcloud(cvPoints3d, color);
-    window.showWidget(name, wcloud);
+    return cvPts;
 }
 
-void vizPoses(cv::viz::Viz3d& window, std::string& name, std::vector<Eigen::Isometry3d> poses /*c2w*/, cv::viz::Color color = cv::viz::Color(255, 255, 255))
+// Eigen::Isometry3d を cv::Affine3d に変換する補助関数
+cv::Affine3d eigenToCvAffine(const Eigen::Isometry3d &pose)
 {
-    for (int i = 0; i < poses.size(); i++) {
-        cv::Affine3d camPose;
-        cv::eigen2cv(Eigen::Affine3d(poses[i]).matrix(), camPose.matrix);
-        std::string widgetFrustumName = name + std::to_string(i);
-        cv::viz::WCameraPosition cpw_frustum(cv::Vec2f(0.889484, 0.523599), -1.0, color); // Camera frustum
-        window.showWidget(widgetFrustumName, cpw_frustum, camPose);
-    }
+    cv::Mat cvMat;
+    cv::eigen2cv(pose.matrix(), cvMat);
+    return cv::Affine3d(cvMat);
 }
 
 int main()
 {
-
-    ///read ply
+    // --- データ読み込み・生成部分はそのまま ---
     happly::PLYData plyIn("../../../cv/VizPly/stanford/bun_zipper.ply");
     std::vector<std::array<double, 3>> vPos = plyIn.getVertexPositions();
-    std::vector<std::vector<size_t>> fInd = plyIn.getFaceIndices<size_t>();
 
     std::vector<Eigen::Vector3d> gtPoints3d;
+    int k = 0;
+    for (auto &pt : vPos)
     {
-        int i = 0;
-        for (auto& pt : vPos) {
-            if (i++ % 30 != 0)
-                continue;
-            gtPoints3d.push_back(Eigen::Vector3d(pt.at(0), pt.at(1), pt.at(2)) * 50);
-        }
+        if (k++ % 30 != 0)
+            continue;
+        gtPoints3d.push_back(Eigen::Vector3d(pt.at(0), pt.at(1), pt.at(2)) * 50);
     }
 
-    //generate camera
+    // カメラ生成（Ground Truth）
     int num_pose = 40;
-    int radius = 10;
-    std::vector<Eigen::Isometry3d> gtPoses; //c2w
-    //gtPose generation
-    for (int i = -3; i <= 3; i++) {
+    float radius = 10.0f;
+    std::vector<Eigen::Isometry3d> gtPoses;
+    for (int i = -3; i <= 3; i++)
+    {
         double rad = 2 * M_PI / num_pose * i;
-        Eigen::AngleAxisd rot(rad, Eigen::Vector3d(0, 1, 0));
+        Eigen::AngleAxisd rot(rad + M_PI, Eigen::Vector3d(0, 1, 0));
         Eigen::Vector3d trans(sin(rad), 0.5, cos(rad));
         Eigen::Isometry3d pose(Eigen::Isometry3d::Identity());
         pose.prerotate(rot);
@@ -75,61 +75,69 @@ int main()
         gtPoses.push_back(pose);
     }
 
-    ///show with viz
-    cv::viz::Viz3d myWindow("Point Cloud");
-    vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
-    vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
-    myWindow.spinOnce(1, true);
-    myWindow.spin();
-    myWindow.removeAllWidgets();
-
-    //generate raugh points and camera
-    double mu = 0., sigma = 0.3;
+    // generate raugh points and camera
+    double mu = 0., sigma = 1;
     std::normal_distribution<> dist(mu, sigma);
     std::random_device seed_gen;
     std::default_random_engine engine(seed_gen());
 
     std::vector<Eigen::Vector3d> points3d;
     std::vector<Eigen::Vector3d> noisedPoints3d;
-    for (auto& pt : gtPoints3d) {
+    for (auto &pt : gtPoints3d)
+    {
         Eigen::Vector3d noisePoint3d = pt + Eigen::Vector3d(dist(engine), dist(engine), dist(engine));
         points3d.push_back(noisePoint3d);
         noisedPoints3d.push_back(noisePoint3d);
     }
 
-    std::vector<Eigen::Isometry3d> poses; //c2w
-    std::vector<Eigen::Isometry3d> noisedPoses; //c2w
-    for (int i = 0; i < gtPoses.size(); i++) {
+    std::vector<Eigen::Isometry3d> poses;       // c2w
+    std::vector<Eigen::Isometry3d> noisedPoses; // c2w
+    for (int i = 0; i < gtPoses.size(); i++)
+    {
         Eigen::Isometry3d pose = gtPoses[i];
-        if (i > 0) {
+        if (i > 2)
+        {
             pose.translation() += Eigen::Vector3d(dist(engine), dist(engine), dist(engine));
         }
         poses.push_back(pose);
         noisedPoses.push_back(pose);
     }
 
-    ///show with viz
-    vizPoints(myWindow, std::string("n_points3d"), noisedPoints3d, cv::viz::Color(0, 0, 255));
-    vizPoses(myWindow, std::string("n_camera"), noisedPoses, cv::viz::Color(0, 0, 255));
-    vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
-    vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
-    myWindow.spinOnce(1, true);
-    myWindow.spin();
-    myWindow.removeAllWidgets();
+    Simple3DViewer viewer;
 
-    //generate projection
+    // 1. Ground Truth (緑)
+    viewer.addCloud(eigenToCvPoints(gtPoints3d), cv::Scalar(0, 255, 0), 1);
+    for (const auto &p : gtPoses)
+    {
+        viewer.addCamera(eigenToCvAffine(p), cv::Scalar(0, 255, 0), 0.5f, 1);
+    }
+
+    // 2. Noised Data (水色)
+    viewer.addCloud(eigenToCvPoints(noisedPoints3d), cv::Scalar(255, 255, 0), 1);
+    for (const auto &p : noisedPoses)
+    {
+        viewer.addCamera(eigenToCvAffine(p), cv::Scalar(255, 255, 0), 0.5f, 1);
+    }
+
+    // ウィンドウを表示してループ
+    std::cout << "Showing results. Press 'q' on the window to exit." << std::endl;
+    viewer.show("Bundle Adjustment Result (VTK-free)");
+
+    // generate projection
     double f = 400;
     double w = 640;
     double h = 480;
     std::vector<std::vector<Eigen::Vector2d>> observations;
     std::vector<std::vector<Eigen::Vector2d>> observationsF;
-    for (auto& pose : gtPoses) {
+    for (auto &pose : gtPoses)
+    {
         std::vector<Eigen::Vector2d> observationCam;
         std::vector<Eigen::Vector2d> observationCamF;
-        for (auto& pt : gtPoints3d) {
+        for (auto &pt : gtPoints3d)
+        {
             Eigen::Vector3d pt3d_cam = pose.inverse() * pt;
             Eigen::Vector2d pt2d_norm = pt3d_cam.head<2>() / pt3d_cam.z();
-            Eigen::Vector2d pt2d = pt2d_norm * f + Eigen::Vector2d(w , h) * 0.5;
+            Eigen::Vector2d pt2d = pt2d_norm * f + Eigen::Vector2d(w, h) * 0.5;
             observationCam.push_back(pt2d_norm);
             observationCamF.push_back(pt2d);
         }
@@ -149,23 +157,25 @@ int main()
     }
 #endif
 
-    //oprimize
+    // oprimize
     double POSE[7][7];
     double POINT[2000][3];
 
-    for (int i = 0; i < poses.size(); i++) {
+    for (int i = 0; i < poses.size(); i++)
+    {
         Eigen::Isometry3d pose = poses[i];
         POSE[i][0] = pose.translation().x();
         POSE[i][1] = pose.translation().y();
         POSE[i][2] = pose.translation().z();
-        Eigen::Quaterniond q{ pose.rotation() };
-        POSE[i][3] = q.x();
-        POSE[i][4] = q.y();
-        POSE[i][5] = q.z();
-        POSE[i][6] = q.w();
+        Eigen::Quaterniond q{pose.rotation()};
+        POSE[i][3] = q.w();
+        POSE[i][4] = q.x();
+        POSE[i][5] = q.y();
+        POSE[i][6] = q.z();
     }
 
-    for (int i = 0; i < points3d.size(); i++) {
+    for (int i = 0; i < points3d.size(); i++)
+    {
         Eigen::Vector3d pt3d = points3d[i];
         POINT[i][0] = pt3d.x();
         POINT[i][1] = pt3d.y();
@@ -173,44 +183,58 @@ int main()
     }
 
     ceres::Problem problem;
-    ceres::LossFunction* loss_function;
+    ceres::LossFunction *loss_function;
     loss_function = new ceres::HuberLoss(1.0);
-    //loss_function = new ceres::CauchyLoss(1.0);
-    for (int i = 0; i < 7; i++) {
-        ceres::LocalParameterization* local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(POSE[i], 7, local_parameterization);
-        if (i == 0) {
+    // loss_function = new ceres::CauchyLoss(1.0);
+    for (int i = 0; i < 7; i++)
+    {
+        ceres::Manifold *manifold = new ceres::ProductManifold(
+            new ceres::EuclideanManifold<3>(), // translation
+            new ceres::QuaternionManifold()    // rotation
+        );
+
+        problem.AddParameterBlock(POSE[i], 7, manifold);
+        if (i < 2)
+        {
             problem.SetParameterBlockConstant(POSE[i]);
         }
     }
 
-    for (int i = 0; i < points3d.size(); i++) {
-        for (int j = 0; j < 7; j++) {
+    for (int i = 0; i < points3d.size(); i++)
+    {
+        for (int j = 0; j < 7; j++)
+        {
             Eigen::Vector2d obs = observations[j][i];
-            ProjectionFactor* f = new ProjectionFactor(obs);
-            problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
+
+            // AutoDiffFunction
+            ceres::CostFunction *cost_function =
+                new ceres::AutoDiffCostFunction<autoDiffProjectionFactor, 2, 7, 3>(
+                    new autoDiffProjectionFactor(obs));
+
+            problem.AddResidualBlock(cost_function, loss_function, POSE[j], POINT[i]);
         }
     }
 
     ceres::Solver::Options options;
     options.linear_solver_type = ceres::DENSE_SCHUR;
     options.trust_region_strategy_type = ceres::DOGLEG;
-    options.max_num_iterations = 8;
+    options.max_num_iterations = 50;
     options.minimizer_progress_to_stdout = true;
-    //options.num_threads = 2;
-    //options.use_explicit_schur_complement = true;
-    //options.use_nonmonotonic_steps = true;
+    // options.num_threads = 2;
+    // options.use_explicit_schur_complement = true;
+    // options.use_nonmonotonic_steps = true;
     ceres::Solver::Summary summary;
     ceres::Solve(options, &problem, &summary);
     std::cout << summary.BriefReport() << std::endl;
 
-    for (int i = 0; i < poses.size(); i++) {
+    for (int i = 0; i < poses.size(); i++)
+    {
         Eigen::Vector3d trans(POSE[i][0], POSE[i][1], POSE[i][2]);
         Eigen::Quaterniond q;
-        q.x() = POSE[i][3];
-        q.y() = POSE[i][4];
-        q.z() = POSE[i][5];
-        q.w() = POSE[i][6];
+        q.w() = POSE[i][3];
+        q.x() = POSE[i][4];
+        q.y() = POSE[i][5];
+        q.z() = POSE[i][6];
 
         Eigen::Isometry3d pose;
         pose.setIdentity();
@@ -219,21 +243,41 @@ int main()
         poses[i] = pose;
     }
 
-    for (int i = 0; i < points3d.size(); i++) {
+    for (int i = 0; i < points3d.size(); i++)
+    {
         points3d[i].x() = POINT[i][0];
         points3d[i].y() = POINT[i][1];
         points3d[i].z() = POINT[i][2];
     }
 
-    vizPoints(myWindow, std::string("n_points3d"), noisedPoints3d, cv::viz::Color(0, 0, 255));
-    vizPoses(myWindow, std::string("n_camera"), noisedPoses, cv::viz::Color(0, 0, 255));
-    vizPoints(myWindow, std::string("g_points3d"), gtPoints3d, cv::viz::Color(0, 255, 0));
-    vizPoses(myWindow, std::string("g_camera"), gtPoses, cv::viz::Color(0, 255, 0));
-    vizPoints(myWindow, std::string("points3d"), points3d, cv::viz::Color(255, 255, 0));
-    vizPoses(myWindow, std::string("camera"), poses, cv::viz::Color(255, 255, 0));
-    myWindow.spinOnce(1, true);
-    myWindow.spin();
-    myWindow.removeAllWidgets();
+    // --- Simple3DViewer を使った表示 ---
+
+    viewer.clear();
+
+    // 1. Ground Truth (緑)
+    viewer.addCloud(eigenToCvPoints(gtPoints3d), cv::Scalar(0, 255, 0), 1);
+    for (const auto &p : gtPoses)
+    {
+        viewer.addCamera(eigenToCvAffine(p), cv::Scalar(0, 255, 0), 0.5f, 1);
+    }
+
+    // 2. Noised Data (水色)
+    viewer.addCloud(eigenToCvPoints(noisedPoints3d), cv::Scalar(255, 255, 0), 1);
+    for (const auto &p : noisedPoses)
+    {
+        viewer.addCamera(eigenToCvAffine(p), cv::Scalar(255, 255, 0), 0.5f, 1);
+    }
+
+    // 3. Optimized Result (黄)
+    viewer.addCloud(eigenToCvPoints(points3d), cv::Scalar(0, 255, 255), 1);
+    for (const auto &p : poses)
+    {
+        viewer.addCamera(eigenToCvAffine(p), cv::Scalar(0, 255, 255), 0.5f, 1);
+    }
+
+    // ウィンドウを表示してループ
+    std::cout << "Showing results. Press 'q' on the window to exit." << std::endl;
+    viewer.show("Bundle Adjustment Result (VTK-free)");
 
     return 0;
 }

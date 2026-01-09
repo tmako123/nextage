@@ -1,13 +1,11 @@
-#ƒvƒƒWƒFƒNƒg–¼
 SET(execName ceres_Bundle_Adjustment )
-cmake_minimum_required(VERSION 2.8)
 PROJECT(${execName})
 
-#ƒ\[ƒXƒtƒ@ƒCƒ‹‚Ì’Ç‰Á
+#ï¿½\ï¿½[ï¿½Xï¿½tï¿½@ï¿½Cï¿½ï¿½ï¿½Ì’Ç‰ï¿½
 FILE(GLOB SRC_FILES *.cpp)
 FILE(GLOB HDR_FILES *.h)
 
 add_executable(${execName} ${HDR_FILES} ${SRC_FILES})
 target_link_libraries(${execName} 
-    ${CERES_LIBRARIES}
-    ${OpenCV_LIBS})
+    ${CERES_LIBRARIES} Ceres::ceres ${OpenCV_LIBS}
+    )
