@@ -25,6 +25,8 @@
 // 自作のヘッダーをインクルード
 #include "Simple3DViewer.hpp"
 
+constexpr bool USE_AUTO_DIFF = false;
+
 // Eigen::Vector3d のリストを Point3f のリストに変換する補助関数
 std::vector<cv::Point3f> eigenToCvPoints(const std::vector<Eigen::Vector3d> &pts)
 {
@@ -168,10 +170,10 @@ int main()
         POSE[i][1] = pose.translation().y();
         POSE[i][2] = pose.translation().z();
         Eigen::Quaterniond q{pose.rotation()};
-        POSE[i][3] = q.w();
-        POSE[i][4] = q.x();
-        POSE[i][5] = q.y();
-        POSE[i][6] = q.z();
+        POSE[i][3] = q.x();
+        POSE[i][4] = q.y();
+        POSE[i][5] = q.z();
+        POSE[i][6] = q.w();
     }
 
     for (int i = 0; i < points3d.size(); i++)
@@ -188,10 +190,18 @@ int main()
     // loss_function = new ceres::CauchyLoss(1.0);
     for (int i = 0; i < 7; i++)
     {
-        ceres::Manifold *manifold = new ceres::ProductManifold(
-            new ceres::EuclideanManifold<3>(), // translation
-            new ceres::QuaternionManifold()    // rotation
-        );
+        ceres::Manifold *manifold;
+        if (USE_AUTO_DIFF)
+        {
+            manifold = new ceres::ProductManifold(
+                new ceres::EuclideanManifold<3>(),   // translation
+                new ceres::EigenQuaternionManifold() // rotation
+            );
+        }
+        else
+        {
+            manifold = new PoseManifold();
+        }
 
         problem.AddParameterBlock(POSE[i], 7, manifold);
         if (i < 2)
@@ -206,18 +216,23 @@ int main()
         {
             Eigen::Vector2d obs = observations[j][i];
 
-            // ProjectionFactor* f = new ProjectionFactor(obs);
-            // problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
+            if (USE_AUTO_DIFF)
+            {
+                ceres::CostFunction *cost_function =
+                    new ceres::AutoDiffCostFunction<autoDiffProjectionFactor, 2, 7, 3>(
+                        new autoDiffProjectionFactor(obs));
+                problem.AddResidualBlock(cost_function, loss_function, POSE[j], POINT[i]);
+            }
+            else
+            {
+                ProjectionFactor *f = new ProjectionFactor(obs);
+                problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
 
-            // ceres::CostFunction *f = new ceres::NumericDiffCostFunction<ProjectionFactor, ceres::CENTRAL, 2, 7, 3>(
-            //     new ProjectionFactor(obs), ceres::TAKE_OWNERSHIP);
-            // problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
-
-            // AutoDiffFunction
-            ceres::CostFunction *cost_function =
-                new ceres::AutoDiffCostFunction<autoDiffProjectionFactor, 2, 7, 3>(
-                    new autoDiffProjectionFactor(obs));
-            problem.AddResidualBlock(cost_function, loss_function, POSE[j], POINT[i]);
+                // 数値微分で誤差関数の確認
+                // ceres::CostFunction *f = new ceres::NumericDiffCostFunction<ProjectionFactor, ceres::CENTRAL, 2, 7, 3>(
+                //     new ProjectionFactor(obs), ceres::TAKE_OWNERSHIP);
+                // problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
+            }
         }
     }
 
@@ -237,10 +252,10 @@ int main()
     {
         Eigen::Vector3d trans(POSE[i][0], POSE[i][1], POSE[i][2]);
         Eigen::Quaterniond q;
-        q.w() = POSE[i][3];
-        q.x() = POSE[i][4];
-        q.y() = POSE[i][5];
-        q.z() = POSE[i][6];
+        q.x() = POSE[i][3];
+        q.y() = POSE[i][4];
+        q.z() = POSE[i][5];
+        q.w() = POSE[i][6];
 
         Eigen::Isometry3d pose;
         pose.setIdentity();

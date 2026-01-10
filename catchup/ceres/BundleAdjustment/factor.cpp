@@ -17,90 +17,54 @@ ProjectionFactor::ProjectionFactor(const Eigen::Vector2d &_pt_j)
 
 bool ProjectionFactor::Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
 {
-    // 1. パラメータ
+    // 1. パラメータ展開 (Eigen Mapを使用)
     Eigen::Map<const Eigen::Vector3d> P(parameters[0]);
-    // Ceres/Eigenの四元数は w, x, y, z
-    double w = parameters[0][3];
-    double x = parameters[0][4];
-    double y = parameters[0][5];
-    double z = parameters[0][6];
-    Eigen::Quaterniond Q(w, x, y, z);
+    // EigenのMapでQを取り出す。メモリ並びが [x,y,z,w] の場合
+    Eigen::Map<const Eigen::Quaterniond> Q(parameters[0] + 3);
     Eigen::Map<const Eigen::Vector3d> X(parameters[1]);
 
-    // 2. 座標変換
-    // p = R(q)^T * (X - P)
-    // R(q)^T は q の共役 q* = (w, -x, -y, -z) による回転と同じです。
-    // つまり、p = q* \times (X-P) \times q
-    Eigen::Matrix3d R_cw = Q.toRotationMatrix().transpose();
-    Eigen::Vector3d X_rel = X - P;
-    Eigen::Vector3d pt_cam = R_cw * X_rel;
+    // 2. 座標変換 (Rは Camera to World と仮定)
+    Eigen::Matrix3d R = Q.toRotationMatrix();
+    // pt_cam = R^T * (X - P)
+    Eigen::Vector3d pt_cam = R.transpose() * (X - P);
 
-    // 3. 残差
-    double weight = 400.0;
+    // 3. 残差計算
     double inv_z = 1.0 / pt_cam.z();
+    Eigen::Vector2d projection(pt_cam.x() * inv_z, pt_cam.y() * inv_z);
+
     Eigen::Map<Eigen::Vector2d> residual(residuals);
-    residual = (pt_cam.head<2>() * inv_z - pt_j) * weight;
+    residual = infoMatrix * (projection - pt_j);
 
     if (jacobians)
     {
-        // 4. 投影行列 (2x3)
-        Eigen::Matrix<double, 2, 3> J_proj;
+        // 投影微分 (2x3)
+        Eigen::Matrix<double, 2, 3> jacob_proj;
         double inv_z2 = inv_z * inv_z;
-        J_proj << inv_z, 0, -pt_cam.x() * inv_z2,
-                  0, inv_z, -pt_cam.y() * inv_z2;
-        J_proj *= weight;
+        jacob_proj << inv_z, 0, -pt_cam.x() * inv_z2,
+            0, inv_z, -pt_cam.y() * inv_z2;
+        jacob_proj = infoMatrix * jacob_proj;
 
-        // --- カメラパラメータ (jacobians[0]) ---
         if (jacobians[0])
         {
-            Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> J_cam(jacobians[0]);
-            J_cam.setZero();
+            Eigen::Map<Eigen::Matrix<double, 2, 7, Eigen::RowMajor>> jacobian_cam(jacobians[0]);
+            jacobian_cam.setZero();
 
-            // A. 並進微分 (∂p / ∂P = -R_cw)
-            J_cam.leftCols<3>() = J_proj * (-R_cw);
+            // --- 並進微分 ---
+            // ∂(R^T(X-P))/∂P = -R^T
+            jacobian_cam.leftCols<3>() = jacob_proj * (-R.transpose());
 
-            // B. 回転微分 (∂p / ∂q) : Ambient Jacobian (3x4)を直接計算
-            // 式: p = R(q)^T * u  (u = X_rel)
-            // この偏微分は非常に間違いやすいため、以下の成分計算を用います。
-            // R^T * u = (2w^2 - 1)u + 2(v*u)v - 2w(v x u)  (v=[x,y,z])
-            // 注: 通常の回転 R*u の式に対し、クロス積の項の符号が反転します。
-
-            double ux = X_rel.x(), uy = X_rel.y(), uz = X_rel.z();
-            
-            // 各成分の偏微分係数
-            // Col 0: w
-            // ∂/∂w = 4w*u - 2(v x u) = 2 * (2w*u - v x u) -> いや、係数が合わないことが多いので行列展開します
-            
-            Eigen::Matrix<double, 3, 4> J_rot_amb;
-
-            // 以下の係数は R^T * u の厳密な展開結果です
-            // w
-            J_rot_amb(0, 0) = 2.0 * ( w * ux + z * uy - y * uz);
-            J_rot_amb(1, 0) = 2.0 * (-z * ux + w * uy + x * uz);
-            J_rot_amb(2, 0) = 2.0 * ( y * ux - x * uy + w * uz);
-
-            // x
-            J_rot_amb(0, 1) = 2.0 * ( x * ux + y * uy + z * uz);
-            J_rot_amb(1, 1) = 2.0 * ( y * ux - x * uy - w * uz);
-            J_rot_amb(2, 1) = 2.0 * ( z * ux + w * uy - x * uz);
-
-            // y
-            J_rot_amb(0, 2) = 2.0 * (-y * ux + x * uy + w * uz);
-            J_rot_amb(1, 2) = 2.0 * ( x * ux + y * uy + z * uz);
-            J_rot_amb(2, 2) = 2.0 * (-w * ux + z * uy - y * uz);
-
-            // z
-            J_rot_amb(0, 3) = 2.0 * (-z * ux - w * uy + y * uz);
-            J_rot_amb(1, 3) = 2.0 * ( w * ux - z * uy + x * uz);
-            J_rot_amb(2, 3) = 2.0 * ( x * ux + y * uy + z * uz);
-
-            J_cam.rightCols<4>() = J_proj * J_rot_amb;
+            // --- 回転微分 (ここが重要) ---
+            // Manifoldで q * dq (右掛け) をしている場合、
+            // 座標変換 pt_cam = R^T * (X - P) に対する微分は [pt_cam]x になる
+            // ※もし左掛け (dq * q) なら -R^T * [X-P]x になる
+            jacobian_cam.block<2, 3>(0, 3) = jacob_proj * skewSymmetric(pt_cam);
         }
 
         if (jacobians[1])
         {
-            Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> J_pt(jacobians[1]);
-            J_pt = J_proj * R_cw;
+            Eigen::Map<Eigen::Matrix<double, 2, 3, Eigen::RowMajor>> jacobian_point(jacobians[1]);
+            // ∂(R^T(X-P))/∂X = R^T
+            jacobian_point = jacob_proj * R.transpose();
         }
     }
     return true;
