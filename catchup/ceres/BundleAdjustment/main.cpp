@@ -14,16 +14,12 @@
 #include <math.h>
 #include <opencv2/core/eigen.hpp>
 #include <opencv2/opencv.hpp>
+#include <opencv2/highgui.hpp>
 #include <random>
 
 #include "factor.h"
-#include "happly/happly.h"
-
-#include <opencv2/highgui.hpp>
-#include <opencv2/core/eigen.hpp>
-
-// 自作のヘッダーをインクルード
-#include "Simple3DViewer.hpp"
+#include "../common/happly/happly.h"
+#include "../common/Simple3DViewer.hpp"
 
 constexpr bool USE_AUTO_DIFF = false;
 
@@ -66,14 +62,11 @@ int main()
     int num_pose = 40;
     float radius = 10.0f;
     std::vector<Eigen::Isometry3d> gtPoses;
-    for (int i = -3; i <= 3; i++)
+    for (int i = -3; i <= 3; ++i)
     {
-        double rad = 2 * M_PI / num_pose * i;
-        Eigen::AngleAxisd rot(rad + M_PI, Eigen::Vector3d(0, 1, 0));
-        Eigen::Vector3d trans(sin(rad), 0.5, cos(rad));
-        Eigen::Isometry3d pose(Eigen::Isometry3d::Identity());
-        pose.prerotate(rot);
-        pose.pretranslate(trans * radius);
+        double rad = 2.0 * M_PI / num_pose * i;
+        Eigen::Isometry3d pose(Eigen::AngleAxisd(rad + M_PI, Eigen::Vector3d::UnitY()));
+        pose.translation() = Eigen::Vector3d(sin(rad), 0.5, cos(rad)) * radius;
         gtPoses.push_back(pose);
     }
 
@@ -94,12 +87,21 @@ int main()
 
     std::vector<Eigen::Isometry3d> poses;       // c2w
     std::vector<Eigen::Isometry3d> noisedPoses; // c2w
-    for (int i = 0; i < gtPoses.size(); i++)
+    for (int i = 0; i < gtPoses.size(); ++i)
     {
         Eigen::Isometry3d pose = gtPoses[i];
-        if (i > 2)
+        if (i > 2) // 2つのカメラは固定
         {
-            pose.translation() += Eigen::Vector3d(dist(engine), dist(engine), dist(engine));
+            // 1. 並進にノイズを乗せる
+            pose.translation() += Eigen::Vector3d::NullaryExpr([&]()
+                                                               { return dist(engine); });
+
+            // 2. 回転にノイズを乗せる (例: 各軸最大数度のランダム回転)
+            Eigen::AngleAxisd noise_rot(
+                dist(engine) * 0.2,          // 回転角のスケール調整
+                Eigen::Vector3d::Unit(i % 3) // ランダムな軸、または特定の軸
+            );
+            pose.linear() *= noise_rot.toRotationMatrix();
         }
         poses.push_back(pose);
         noisedPoses.push_back(pose);
@@ -160,28 +162,20 @@ int main()
 #endif
 
     // oprimize
-    double POSE[7][7];
-    double POINT[2000][3];
+    std::vector<Eigen::Matrix<double, 7, 1>> POSE(poses.size());
+    std::vector<Eigen::Vector3d> POINT(points3d.size());
 
     for (int i = 0; i < poses.size(); i++)
     {
-        Eigen::Isometry3d pose = poses[i];
-        POSE[i][0] = pose.translation().x();
-        POSE[i][1] = pose.translation().y();
-        POSE[i][2] = pose.translation().z();
-        Eigen::Quaterniond q{pose.rotation()};
-        POSE[i][3] = q.x();
-        POSE[i][4] = q.y();
-        POSE[i][5] = q.z();
-        POSE[i][6] = q.w();
+        const Eigen::Isometry3d &pose = poses[i];
+        POSE[i].head<3>() = pose.translation();
+        POSE[i].tail<4>() = Eigen::Quaterniond(pose.rotation()).coeffs(); // qx, qy, qz, qwの順
     }
 
     for (int i = 0; i < points3d.size(); i++)
     {
-        Eigen::Vector3d pt3d = points3d[i];
-        POINT[i][0] = pt3d.x();
-        POINT[i][1] = pt3d.y();
-        POINT[i][2] = pt3d.z();
+        const Eigen::Vector3d &pt3d = points3d[i];
+        POINT[i] = pt3d;
     }
 
     ceres::Problem problem;
@@ -193,6 +187,7 @@ int main()
         ceres::Manifold *manifold;
         if (USE_AUTO_DIFF)
         {
+            // ceresで提供されているクォータニオン用のManifoldを利用
             manifold = new ceres::ProductManifold(
                 new ceres::EuclideanManifold<3>(),   // translation
                 new ceres::EigenQuaternionManifold() // rotation
@@ -200,13 +195,14 @@ int main()
         }
         else
         {
-            manifold = new PoseManifold();
+            manifold = new PoseManifold(); // 高速化用の自作Manifoldを利用
         }
 
-        problem.AddParameterBlock(POSE[i], 7, manifold);
+        problem.AddParameterBlock(POSE[i].data(), 7, manifold);
         if (i < 2)
         {
-            problem.SetParameterBlockConstant(POSE[i]);
+            // カメラ0,1番を固定。2つ固定しないとスケールが規定でいない
+            problem.SetParameterBlockConstant(POSE[i].data());
         }
     }
 
@@ -221,12 +217,12 @@ int main()
                 ceres::CostFunction *cost_function =
                     new ceres::AutoDiffCostFunction<autoDiffProjectionFactor, 2, 7, 3>(
                         new autoDiffProjectionFactor(obs));
-                problem.AddResidualBlock(cost_function, loss_function, POSE[j], POINT[i]);
+                problem.AddResidualBlock(cost_function, loss_function, POSE[j].data(), POINT[i].data());
             }
             else
             {
                 ProjectionFactor *f = new ProjectionFactor(obs);
-                problem.AddResidualBlock(f, loss_function, POSE[j], POINT[i]);
+                problem.AddResidualBlock(f, loss_function, POSE[j].data(), POINT[i].data());
 
                 // 数値微分で誤差関数の確認
                 // ceres::CostFunction *f = new ceres::NumericDiffCostFunction<ProjectionFactor, ceres::CENTRAL, 2, 7, 3>(
@@ -248,28 +244,18 @@ int main()
     ceres::Solve(options, &problem, &summary);
     std::cout << summary.FullReport() << std::endl;
 
-    for (int i = 0; i < poses.size(); i++)
+    // ---- 最適化結果の取り出し ---
+    // Posesの更新
+    for (int i = 0; i < poses.size(); ++i)
     {
-        Eigen::Vector3d trans(POSE[i][0], POSE[i][1], POSE[i][2]);
-        Eigen::Quaterniond q;
-        q.x() = POSE[i][3];
-        q.y() = POSE[i][4];
-        q.z() = POSE[i][5];
-        q.w() = POSE[i][6];
+        auto &target = poses[i];
+        const auto &src = POSE[i];
 
-        Eigen::Isometry3d pose;
-        pose.setIdentity();
-        pose.prerotate(q.normalized().toRotationMatrix());
-        pose.pretranslate(trans);
-        poses[i] = pose;
+        target.translation() = src.head<3>();
+        target.linear() = Eigen::Quaterniond(src.tail<4>()).normalized().toRotationMatrix();
     }
-
-    for (int i = 0; i < points3d.size(); i++)
-    {
-        points3d[i].x() = POINT[i][0];
-        points3d[i].y() = POINT[i][1];
-        points3d[i].z() = POINT[i][2];
-    }
+    // Pointsの更新
+    points3d = POINT;
 
     // --- Simple3DViewer を使った表示 ---
 

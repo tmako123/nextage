@@ -65,9 +65,9 @@ struct autoDiffProjectionFactor
     bool operator()(const T *const pose, const T *const point, T *residuals) const
     {
         // 1. パラメータの展開
-        // pose[0-2]: Translation, pose[3-6]: Quaternion (qw, qx, qy, qz)
+        // pose[0-2]: Translation, pose[3-6]: Quaternion (qx, qy, qz, qw)
         Eigen::Map<const Eigen::Matrix<T, 3, 1>> P(pose);
-        Eigen::Quaternion<T> Q(pose[6], pose[3], pose[4], pose[5]);
+        Eigen::Quaternion<T> Q(pose[6], pose[3], pose[4], pose[5]); // qw, qx, qw, qz
         Eigen::Map<const Eigen::Matrix<T, 3, 1>> X(point);
 
         // 2. カメラ座標系への変換: pt_cam = Q^-1 * (X - P)

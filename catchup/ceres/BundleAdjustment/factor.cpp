@@ -53,10 +53,9 @@ bool ProjectionFactor::Evaluate(double const *const *parameters, double *residua
             // ∂(R^T(X-P))/∂P = -R^T
             jacobian_cam.leftCols<3>() = jacob_proj * (-R.transpose());
 
-            // --- 回転微分 (ここが重要) ---
+            // --- 回転微分 ---
             // Manifoldで q * dq (右掛け) をしている場合、
             // 座標変換 pt_cam = R^T * (X - P) に対する微分は [pt_cam]x になる
-            // ※もし左掛け (dq * q) なら -R^T * [X-P]x になる
             jacobian_cam.block<2, 3>(0, 3) = jacob_proj * skewSymmetric(pt_cam);
         }
 
