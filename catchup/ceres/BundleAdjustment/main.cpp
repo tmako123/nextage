@@ -12,7 +12,6 @@
 #include <ceres/ceres.h>
 #include <iostream>
 #include <math.h>
-#include <opencv2/core/eigen.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/highgui.hpp>
 #include <random>
@@ -22,26 +21,6 @@
 #include "../common/Simple3DViewer.hpp"
 
 constexpr bool USE_AUTO_DIFF = false;
-
-// Eigen::Vector3d のリストを Point3f のリストに変換する補助関数
-std::vector<cv::Point3f> eigenToCvPoints(const std::vector<Eigen::Vector3d> &pts)
-{
-    std::vector<cv::Point3f> cvPts;
-    cvPts.reserve(pts.size());
-    for (const auto &p : pts)
-    {
-        cvPts.emplace_back((float)p.x(), (float)p.y(), (float)p.z());
-    }
-    return cvPts;
-}
-
-// Eigen::Isometry3d を cv::Affine3d に変換する補助関数
-cv::Affine3d eigenToCvAffine(const Eigen::Isometry3d &pose)
-{
-    cv::Mat cvMat;
-    cv::eigen2cv(pose.matrix(), cvMat);
-    return cv::Affine3d(cvMat);
-}
 
 int main()
 {

@@ -1,7 +1,6 @@
 SET(execName ceres_Bundle_Adjustment )
 PROJECT(${execName})
 
-#�\�[�X�t�@�C���̒ǉ�
 FILE(GLOB SRC_FILES *.cpp)
 FILE(GLOB HDR_FILES *.h)
 

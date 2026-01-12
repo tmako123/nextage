@@ -2,7 +2,28 @@
 #define SIMPLE_3D_VIEWER_HPP
 
 #include <opencv2/opencv.hpp>
+#include <opencv2/core/eigen.hpp>
 #include <vector>
+
+// Eigen::Vector3d のリストを Point3f のリストに変換
+std::vector<cv::Point3f> eigenToCvPoints(const std::vector<Eigen::Vector3d> &pts)
+{
+    std::vector<cv::Point3f> cvPts;
+    cvPts.reserve(pts.size());
+    for (const auto &p : pts)
+    {
+        cvPts.emplace_back((float)p.x(), (float)p.y(), (float)p.z());
+    }
+    return cvPts;
+}
+
+// Eigen::Isometry3d を cv::Affine3d に変換する補助関数
+cv::Affine3d eigenToCvAffine(const Eigen::Isometry3d &pose)
+{
+    cv::Mat cvMat;
+    cv::eigen2cv(pose.matrix(), cvMat);
+    return cv::Affine3d(cvMat);
+}
 
 class Simple3DViewer
 {
